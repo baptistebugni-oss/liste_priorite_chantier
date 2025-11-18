@@ -3,130 +3,139 @@ import pandas as pd
 import json
 import os
 from datetime import datetime
+from io import BytesIO
 
-# ----------------------- FICHIERS -----------------------
+
+from reportlab.lib.pagesizes import A4
+from reportlab.pdfgen import canvas
+import qrcode
+
+
+# ----------------------- FICHIERS & CONST -----------------------
 DATA_FILE = "chantiers.json"
 OPTIONS_FILE = "options.json"
-ADMIN_PASSWORD = "admin123"  # À modifier selon ton choix
+ADMIN_PASSWORD = "admin123" # À changer si besoin
 
-# ----------------------- CHARGEMENT -----------------------
-def charger_chantiers():
-    """Charge le fichier JSON et assure un DataFrame propre et complet."""
 
-    # Si fichier inexistant → créer DataFrame vide
-    if not os.path.exists(DATA_FILE):
-        return pd.DataFrame(columns=["nom", "ref", "date"])
+DEFAULT_OPTIONS = {
+"rouge": 2,
+"orange": 7,
+"jaune": 14,
+"show_qr": True,
+}
 
-    # Lire JSON
-    with open(DATA_FILE, "r", encoding="utf-8") as f:
-        try:
-            data = json.load(f)
-        except json.JSONDecodeError:
-            data = []
 
-    # Transformer en DataFrame
-    df = pd.DataFrame(data)
+# ----------------------- DONNÉES -----------------------
 
-    # Colonnes obligatoires
-    colonnes = ["nom", "ref", "date"]
-    for col in colonnes:
-        if col not in df.columns:
-            df[col] = ""
 
-    # Conversion date sécurisée
-    if not df.empty:
-        df["date"] = pd.to_datetime(df["date"], errors="coerce")
+def charger_chantiers() -> pd.DataFrame:
+"""Charge le fichier JSON et renvoie un DataFrame propre."""
+if not os.path.exists(DATA_FILE):
+return pd.DataFrame(columns=["nom", "ref", "date"])
 
-    return df
 
-# ----------------------- SAUVEGARDE -----------------------
-def sauvegarder_chantiers(df):
-    """Sauvegarde le DataFrame dans le fichier JSON."""
-    df_to_save = df.copy()
-    df_to_save["date"] = df_to_save["date"].astype(str)
+try:
+with open(DATA_FILE, "r", encoding="utf-8") as f:
+data = json.load(f)
+except (json.JSONDecodeError, FileNotFoundError):
+data = []
 
-    with open(DATA_FILE, "w", encoding="utf-8") as f:
-        json.dump(df_to_save.to_dict(orient="records"), f, ensure_ascii=False, indent=4)
+
+df = pd.DataFrame(data)
+for col in ["nom", "ref", "date"]:
+if col not in df.columns:
+df[col] = ""
+
+
+if not df.empty:
+df["date"] = pd.to_datetime(df["date"], errors="coerce")
+
+
+return df
+
+
+
+
+def sauvegarder_chantiers(df: pd.DataFrame) -> None:
+df_to_save = df.copy()
+if not df_to_save.empty:
+df_to_save["date"] = df_to_save["date"].astype(str)
+
+
+with open(DATA_FILE, "w", encoding="utf-8") as f:
+json.dump(df_to_save.to_dict(orient="records"), f, ensure_ascii=False, indent=4)
+
+
+
 
 # ----------------------- OPTIONS -----------------------
-def charger_options():
-    """Charge les options ou crée les valeurs par défaut."""
-    if not os.path.exists(OPTIONS_FILE):
-        opts = {"rouge": 2, "orange": 7, "jaune": 14}
-        sauvegarder_options(opts)
-        return opts
-
-    with open(OPTIONS_FILE, "r", encoding="utf-8") as f:
-        try:
-            return json.load(f)
-        except json.JSONDecodeError:
-            return {"rouge": 2, "orange": 7, "jaune": 14}
 
 
-def sauvegarder_options(opts):
-    with open(OPTIONS_FILE, "w", encoding="utf-8") as f:
-        json.dump(opts, f, indent=4)
+def charger_options() -> dict:
+if not os.path.exists(OPTIONS_FILE):
+sauvegarder_options(DEFAULT_OPTIONS)
+return DEFAULT_OPTIONS.copy()
 
-# ============================================================
-#                         INTERFACE APP
-# ============================================================
-st.set_page_config(page_title="Liste Priorité Chantier", layout="wide")
-st.title("📋 Gestion des priorités chantier")
 
-# Mode utilisateur / admin
-mode = st.sidebar.selectbox("Mode", ["Lecture seule", "Administrateur"])
-admin = False
+try:
+with open(OPTIONS_FILE, "r", encoding="utf-8") as f:
+opts = json.load(f)
+except json.JSONDecodeError:
+opts = {}
 
-if mode == "Administrateur":
-    mdp = st.sidebar.text_input("Mot de passe", type="password")
-    if mdp == ADMIN_PASSWORD:
-        admin = True
-    else:
-        st.sidebar.error("Mot de passe incorrect")
 
-# Charger données
-df = charger_chantiers()
-opts = charger_options()
+# complèter avec les valeurs par défaut
+for k, v in DEFAULT_OPTIONS.items():
+opts.setdefault(k, v)
 
-# ----------------------- AJOUT -----------------------
-if admin:
-    st.subheader("➕ Ajouter un chantier")
 
-    nom = st.text_input("Nom du chantier")
-    ref = st.text_input("Référence")
-    date = st.date_input("Date de montage")
+return opts
 
-    if st.button("Ajouter le chantier"):
-        new_row = {"nom": nom, "ref": ref, "date": str(date)}
-        df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
-        sauvegarder_chantiers(df)
-        st.success("Chantier ajouté !")
-        st.rerun()
 
-# ----------------------- SUPPRESSION -----------------------
-if admin:
-    st.subheader("🗑 Supprimer un chantier")
 
-    if df.empty:
-        st.info("Aucun chantier à supprimer.")
-    else:
-        idx = st.selectbox(
-            "Sélectionner un chantier",
-            df.index,
-            format_func=lambda x: f"{df.loc[x, 'nom']} - {df.loc[x, 'ref']}"
-        )
 
-        if st.button("Supprimer"):
-            df = df.drop(idx).reset_index(drop=True)
-            sauvegarder_chantiers(df)
-            st.success("Chantier supprimé !")
-            st.rerun()
+def sauvegarder_options(opts: dict) -> None:
+with open(OPTIONS_FILE, "w", encoding="utf-8") as f:
+json.dump(opts, f, indent=4)
 
-# ----------------------- AFFICHAGE -----------------------
-st.subheader("📌 Liste des chantiers")
 
-if df.empty:
-    st.info("Aucun chantier enregistré.")
+
+
+# ----------------------- COULEURS D'URGENCE -----------------------
+
+
+def style_urgence(row, opts: dict):
+"""Retourne un style de ligne en fonction de la date et des seuils."""
+d = row.get("date")
+if pd.isna(d):
+return [""] * len(row)
+
+
+today = datetime.today().date()
+delta = (d.date() - today).days
+
+
+if delta <= opts["rouge"]:
+color = "#FF4B4B" # rouge vif
+elif delta <= opts["orange"]:
+color = "#FFA500" # orange
+elif delta <= opts["jaune"]:
+color = "#FFD966" # jaune
 else:
-    df_aff = df.sort_values(by="date")
-    st.dataframe(df_aff)
+color = ""
+
+
+if not color:
+return [""] * len(row)
+
+
+return [f"background-color: {color}"] * len(row)
+
+
+
+
+# ----------------------- EXPORTS -----------------------
+
+
+def build_excel(df: pd.DataFrame) -> BytesIO:
+st.info("Renseignez l'URL de l'application pour générer un QR code.")
