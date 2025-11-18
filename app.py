@@ -50,7 +50,7 @@ def sauvegarder_chantiers(df):
     df_to_save["date"] = df_to_save["date"].astype(str)
 
     with open(DATA_FILE, "w", encoding="utf-8") as f:
-        json.dump(df_to_save.to_dict(orient="records"), f, ensure_ascii=False, indent=4)(df_to_save.to_dict(orient="records"), f, ensure_ascii=False, indent=4)
+        json.dump(df_to_save.to_dict(orient="records"), f, ensure_ascii=False, indent=4)
 
 # ----------------------- OPTIONS -----------------------
 def charger_options():
@@ -67,9 +67,7 @@ def charger_options():
             return {"rouge": 2, "orange": 7, "jaune": 14}
 
 
-def sauvegarder_options(opts):
-    with open(OPTIONS_FILE, "w", encoding="utf-8") as f:
-        json.dump(opts, f, indent=4)
+def sauvegarder_options(opts, f, indent=4)
 
 (opts):
     with open(OPTIONS_FILE, "w", encoding="utf-8") as f:
