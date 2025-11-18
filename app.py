@@ -8,12 +8,14 @@ from datetime import datetime
 # ----------------------- FICHIERS -----------------------
 DATA_FILE = "chantiers.json"
 OPTIONS_FILE = "options.json"
-ADMIN_PASSWORD = "admin123" # Tu peux changer ici
+ADMIN_PASSWORD = "admin123" # À modifier selon ton choix
 
 
 # ----------------------- CHARGEMENT -----------------------
 def charger_chantiers():
 """Charge le fichier JSON et assure un DataFrame propre et complet."""
+
+
 # Si fichier inexistant → créer DataFrame vide
 if not os.path.exists(DATA_FILE):
 return pd.DataFrame(columns=["nom", "ref", "date"])
@@ -46,8 +48,6 @@ df["date"] = pd.to_datetime(df["date"], errors="coerce")
 return df
 
 
-
-
 # ----------------------- SAUVEGARDE -----------------------
 def sauvegarder_chantiers(df):
 df_to_save = df.copy()
@@ -58,10 +58,9 @@ with open(DATA_FILE, "w", encoding="utf-8") as f:
 json.dump(df_to_save.to_dict(orient="records"), f, ensure_ascii=False, indent=4)
 
 
-
-
 # ----------------------- OPTIONS -----------------------
 def charger_options():
+"""Charge les options de couleur ou crée des valeurs par défaut."""
 if not os.path.exists(OPTIONS_FILE):
 opts = {"rouge": 2, "orange": 7, "jaune": 14}
 sauvegarder_options(opts)
@@ -80,8 +79,6 @@ return {"rouge": 2, "orange": 7, "jaune": 14}
 def sauvegarder_options(opts):
 with open(OPTIONS_FILE, "w", encoding="utf-8") as f:
 json.dump(opts, f, indent=4)
-
-
 
 
 # ============================================================
@@ -123,4 +120,13 @@ if st.button("Ajouter le chantier"):
 new_row = {"nom": nom, "ref": ref, "date": str(date)}
 df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
 sauvegarder_chantiers(df)
+st.success("Chantier ajouté !")
+st.rerun()
+
+
+# ----------------------- SUPPRESSION -----------------------
+if admin:
+st.subheader("🗑 Supprimer un chantier")
+
+
 st.dataframe(df_aff)
