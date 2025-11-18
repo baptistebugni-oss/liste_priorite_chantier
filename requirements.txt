@@ -2,3 +2,6 @@ streamlit
 pandas
 numpy
 reportlab
+qrcode
+Pillow
+openpyxl
