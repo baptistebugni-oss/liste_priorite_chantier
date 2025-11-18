@@ -10,6 +10,7 @@ OPTIONS_FILE = "options.json"
 
 
 # ------------------- CHARGEMENT DES DONNÉES -------------------
+# --- FIXED VERSION ---
 def charger_chantiers():
 if not os.path.exists(DATA_FILE):
 return pd.DataFrame(columns=["nom", "ref", "date"])
