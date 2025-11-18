@@ -42,31 +42,11 @@ def charger_chantiers():
 # ----------------------- SAUVEGARDE -----------------------
 def sauvegarder_chantiers(df):
     """Sauvegarde le DataFrame dans le fichier JSON en assurant une bonne indentation."""
-
     df_to_save = df.copy()
     df_to_save["date"] = df_to_save["date"].astype(str)
 
     with open(DATA_FILE, "w", encoding="utf-8") as f:
-        json.dump(df_to_save.to_dict(orient="records"), f, ensure_ascii=False, indent=4)(df_to_save.to_dict(orient="records"), f, ensure_ascii=False, indent=4)
-
-# ----------------------- OPTIONS -----------------------
-def charger_options():
-    """Charge les options de couleur ou crée des valeurs par défaut."""
-    if not os.path.exists(OPTIONS_FILE):
-        opts = {"rouge": 2, "orange": 7, "jaune": 14}
-        sauvegarder_options(opts)
-        return opts
-
-    with open(OPTIONS_FILE, "r", encoding="utf-8") as f:
-        try:
-            return json.load(f)
-        except json.JSONDecodeError:
-            return {"rouge": 2, "orange": 7, "jaune": 14}
-
-
-def sauvegarder_options(opts):
-    with open(OPTIONS_FILE, "w", encoding="utf-8") as f:
-        json.dump(opts, f, indent=4)
+        json.dump(df_to_save.to_dict(orient="records"), f, ensure_ascii=False, indent=4)
 
 # ============================================================
 #                         INTERFACE APP
@@ -131,3 +111,4 @@ if df.empty:
 else:
     df_aff = df.sort_values(by="date")
     st.dataframe(df_aff)
+
