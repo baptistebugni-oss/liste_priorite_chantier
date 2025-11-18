@@ -13,39 +13,35 @@ ADMIN_PASSWORD = "admin123" # À modifier selon ton choix
 
 # ----------------------- CHARGEMENT -----------------------
 def charger_chantiers():
-"""Charge le fichier JSON et assure un DataFrame propre et complet."""
+    """Charge le fichier JSON et assure un DataFrame propre et complet."""
 
+    # Ce pass garantit que Python reconnaît bien un bloc indenté
+    pass
 
-# Si fichier inexistant → créer DataFrame vide
-if not os.path.exists(DATA_FILE):
-return pd.DataFrame(columns=["nom", "ref", "date"])
+    # Si fichier inexistant → créer DataFrame vide
+    if not os.path.exists(DATA_FILE):
+        return pd.DataFrame(columns=["nom", "ref", "date"])
 
+    # Lire JSON
+    with open(DATA_FILE, "r", encoding="utf-8") as f:
+        try:
+            data = json.load(f)
+        except json.JSONDecodeError:
+            data = []
 
-# Lire JSON
-with open(DATA_FILE, "r", encoding="utf-8") as f:
-try:
-data = json.load(f)
-except json.JSONDecodeError:
-data = []
+    # Transformer en DataFrame
+    df = pd.DataFrame(data)
 
+    # Colonnes obligatoires
+    colonnes = ["nom", "ref", "date"]
+    for col in colonnes:
+        df.setdefault(col, "")
 
-# Transformer en DataFrame
-df = pd.DataFrame(data)
+    # Conversion date sécurisée
+    if not df.empty:
+        df["date"] = pd.to_datetime(df["date"], errors="coerce")
 
-
-# Colonnes obligatoires
-colonnes = ["nom", "ref", "date"]
-for col in colonnes:
-if col not in df.columns:
-df[col] = ""
-
-
-# Conversion date sécurisée
-if not df.empty:
-df["date"] = pd.to_datetime(df["date"], errors="coerce")
-
-
-return df
+    return df
 
 
 # ----------------------- SAUVEGARDE -----------------------
@@ -130,3 +126,4 @@ st.subheader("🗑 Supprimer un chantier")
 
 
 st.dataframe(df_aff)
+
