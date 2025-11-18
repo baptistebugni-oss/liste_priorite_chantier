@@ -30,7 +30,8 @@ def charger_chantiers() -> pd.DataFrame:
         data = []
     df = pd.DataFrame(data)
     for col in ["nom", "ref", "date"]:
-        df.setdefault(col, "")
+    if col not in df.columns:
+        df[col] = ""
     if not df.empty:
         df["date"] = pd.to_datetime(df["date"], errors="coerce")
     return df
