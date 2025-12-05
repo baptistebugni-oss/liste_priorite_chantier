@@ -761,16 +761,21 @@ st.divider()
 
 # ================== QR CODE ==================
 
-if opts["show_qr"]:
-    st.subheader("📱 QR Code atelier")
+if qr_enabled and qr_url:
+    qr = qrcode.QRCode(box_size=3, border=1)
+    qr.add_data(qr_url)
+    qr.make(fit=True)
+    img = qr.make_image(fill_color="black", back_color="white")
 
-    # Le widget gère automatiquement la valeur dans session_state["qr_url"]
-    qr_url = st.text_input(
-        "URL de l'application",
-        key="qr_url",
-        placeholder="https://..."
-    )
+    # Convertir correctement pour ReportLab
+    qr_buf = BytesIO()
+    img.save(qr_buf, format="PNG")
+    qr_buf.seek(0)
 
-    # Affiche le QR-code si une URL est présente
-    if qr_url:
-        st.image(build_qr_image(qr_url), width=200)
+    qr_img = ImageReader(qr_buf)
+
+    c.drawImage(qr_img, width - 45 * mm, 15 * mm, width=30 * mm, preserveAspectRatio=True)
+
+    c.setFont("Helvetica", 9)
+    c.drawRightString(width - 10 * mm, 12 * mm, "Accès application")
+
