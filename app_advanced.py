@@ -5,11 +5,11 @@ import os
 from datetime import datetime, date
 from io import BytesIO
 
-from reportlab.lib.utils import ImageReader
 from reportlab.lib.pagesizes import A4
 from reportlab.pdfgen import canvas
 from reportlab.lib import colors
 from reportlab.lib.units import mm
+from reportlab.lib.utils import ImageReader
 import qrcode
 
 # ================== CONFIGURATION ==================
@@ -25,7 +25,6 @@ DEFAULT_OPTIONS = {
     "show_qr": True,
 }
 
-# Colonnes internes obligatoires
 COLUMNS = ["nom", "ref", "date", "commentaire", "statut", "priorite"]
 
 
@@ -81,7 +80,6 @@ def charger_options():
     except:
         opts = {}
 
-    # Ajoute les valeurs manquantes
     for k, v in DEFAULT_OPTIONS.items():
         opts.setdefault(k, v)
 
@@ -135,8 +133,7 @@ def make_style_table(df_display, df_filtered, opts):
     - Statut uniquement sur Statut
     - Autres cellules neutres
     """
-    # Réaligner df_filtered sur le même index que df_display
-    df_f = df_filtered.loc[df_display.index]
+    df_f = df_filtered.loc[df_display.index]  # réalignement sur les mêmes index
 
     styles = pd.DataFrame("", index=df_display.index, columns=df_display.columns)
 
@@ -184,7 +181,7 @@ def build_excel(df):
 
 # ================== EXPORT PDF PREMIUM ==================
 
-def build_pdf(df, opts, qr_enabled=False, qr_url=None):
+def build_pdf(df, opts, qr_url=None):
     buf = BytesIO()
     c = canvas.Canvas(buf, pagesize=A4)
     width, height = A4
@@ -198,7 +195,6 @@ def build_pdf(df, opts, qr_enabled=False, qr_url=None):
     c.drawCentredString(width / 2, height - 40, "Gestion Projet Priorités")
 
     c.setFont("Helvetica", 10)
-    c.setFillColor(colors.white)
     c.drawString(40, height - 58, f"Export du {datetime.now().strftime('%d/%m/%Y %H:%M')}")
 
     # ----- Légende -----
@@ -250,13 +246,6 @@ def build_pdf(df, opts, qr_enabled=False, qr_url=None):
     # Tri par date pour le PDF
     df_sorted = df.sort_values("date")
 
-    # Fonctions couleurs internes pour le PDF
-    def urgence_color_pdf(row):
-        return get_urgence_color(row, opts)
-
-    def statut_color_pdf(statut):
-        return get_statut_color(statut)
-
     # ----- Lignes -----
     for _, row in df_sorted.iterrows():
         # Saut de page si nécessaire
@@ -278,7 +267,7 @@ def build_pdf(df, opts, qr_enabled=False, qr_url=None):
             c.setFont("Helvetica", 9)
 
         # Bande verticale d'urgence
-        urg = urgence_color_pdf(row)
+        urg = get_urgence_color(row, opts)
         if urg:
             c.setFillColor(colors.HexColor(urg))
             c.rect(left - 8, y - 14, 6, 14, fill=1, stroke=0)
@@ -308,7 +297,7 @@ def build_pdf(df, opts, qr_enabled=False, qr_url=None):
         x += col_widths[2]
 
         # Statut avec fond coloré
-        statut_bg = statut_color_pdf(statut)
+        statut_bg = get_statut_color(statut)
         if statut_bg:
             c.setFillColor(colors.HexColor(statut_bg))
             c.rect(x, y - 12, col_widths[3] - 4, 14, fill=1, stroke=0)
@@ -318,16 +307,18 @@ def build_pdf(df, opts, qr_enabled=False, qr_url=None):
         y -= 18
 
     # ----- QR CODE en bas -----
-    if qr_enabled and qr_url:
+    if qr_url:
         qr = qrcode.QRCode(box_size=3, border=1)
         qr.add_data(qr_url)
         qr.make(fit=True)
         img = qr.make_image(fill_color="black", back_color="white")
+
         qr_buf = BytesIO()
         img.save(qr_buf, format="PNG")
         qr_buf.seek(0)
 
-        c.drawImage(qr_buf, width - 45 * mm, 15 * mm, width=30 * mm, preserveAspectRatio=True)
+        qr_img = ImageReader(qr_buf)
+        c.drawImage(qr_img, width - 45 * mm, 15 * mm, width=30 * mm, preserveAspectRatio=True)
 
         c.setFont("Helvetica", 9)
         c.setFillColor(colors.black)
@@ -750,7 +741,7 @@ else:
         qr_url_for_pdf = st.session_state.get("qr_url") or None
         st.download_button(
             "📄 Export PDF",
-            build_pdf(df, opts, qr_enabled=opts["show_qr"], qr_url=qr_url_for_pdf),
+            build_pdf(df, opts, qr_url=qr_url_for_pdf),
             file_name=f"Gestion_Projet_Priorites_{datetime.now().strftime('%Y-%m-%d')}.pdf",
             mime="application/pdf"
         )
@@ -761,21 +752,14 @@ st.divider()
 
 # ================== QR CODE ==================
 
-if qr_enabled and qr_url:
-    qr = qrcode.QRCode(box_size=3, border=1)
-    qr.add_data(qr_url)
-    qr.make(fit=True)
-    img = qr.make_image(fill_color="black", back_color="white")
+if opts["show_qr"]:
+    st.subheader("📱 QR Code atelier")
 
-    # Convertir correctement pour ReportLab
-    qr_buf = BytesIO()
-    img.save(qr_buf, format="PNG")
-    qr_buf.seek(0)
+    qr_url = st.text_input(
+        "URL de l'application",
+        key="qr_url",
+        placeholder="https://..."
+    )
 
-    qr_img = ImageReader(qr_buf)
-
-    c.drawImage(qr_img, width - 45 * mm, 15 * mm, width=30 * mm, preserveAspectRatio=True)
-
-    c.setFont("Helvetica", 9)
-    c.drawRightString(width - 10 * mm, 12 * mm, "Accès application")
-
+    if qr_url:
+        st.image(build_qr_image(qr_url), width=200)
