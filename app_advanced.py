@@ -762,12 +762,14 @@ st.divider()
 
 if opts["show_qr"]:
     st.subheader("📱 QR Code atelier")
+
+    # Le widget gère automatiquement la valeur dans session_state["qr_url"]
     qr_url = st.text_input(
         "URL de l'application",
         key="qr_url",
-        value=st.session_state.get("qr_url", "")
+        placeholder="https://..."
     )
-    st.session_state["qr_url"] = qr_url
 
+    # Affiche le QR-code si une URL est présente
     if qr_url:
         st.image(build_qr_image(qr_url), width=200)
