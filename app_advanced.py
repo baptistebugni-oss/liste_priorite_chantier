@@ -11,7 +11,7 @@ from reportlab.lib import colors
 from reportlab.lib.units import mm
 import qrcode
 
-# ================== CONFIG ==================
+# ================== CONFIGURATION ==================
 
 DATA_FILE = "chantiers.json"
 OPTIONS_FILE = "options.json"
@@ -24,12 +24,14 @@ DEFAULT_OPTIONS = {
     "show_qr": True,
 }
 
+# Colonnes internes obligatoires
 COLUMNS = ["nom", "ref", "date", "commentaire", "statut", "priorite"]
 
 
 # ================== UTILITAIRES ==================
 
 def ensure_columns(df: pd.DataFrame, columns):
+    """Ajoute les colonnes manquantes."""
     for col in columns:
         if col not in df.columns:
             df[col] = ""
@@ -37,6 +39,7 @@ def ensure_columns(df: pd.DataFrame, columns):
 
 
 def charger_chantiers():
+    """Charge les données JSON + assure cohérence des colonnes."""
     if not os.path.exists(DATA_FILE):
         return pd.DataFrame(columns=COLUMNS)
 
@@ -56,14 +59,17 @@ def charger_chantiers():
 
 
 def sauvegarder_chantiers(df):
+    """Sauvegarde les données dans JSON."""
     df2 = df.copy()
     if not df2.empty:
         df2["date"] = df2["date"].astype(str)
+
     with open(DATA_FILE, "w", encoding="utf-8") as f:
         json.dump(df2.to_dict(orient="records"), f, ensure_ascii=False, indent=4)
 
 
 def charger_options():
+    """Charge les options admin ou crée celles par défaut."""
     if not os.path.exists(OPTIONS_FILE):
         sauvegarder_options(DEFAULT_OPTIONS)
         return DEFAULT_OPTIONS.copy()
@@ -74,6 +80,7 @@ def charger_options():
     except:
         opts = {}
 
+    # Ajoute les valeurs manquantes
     for k, v in DEFAULT_OPTIONS.items():
         opts.setdefault(k, v)
 
@@ -81,29 +88,27 @@ def charger_options():
 
 
 def sauvegarder_options(opts):
+    """Sauvegarde les options admin."""
     with open(OPTIONS_FILE, "w", encoding="utf-8") as f:
         json.dump(opts, f, indent=4)
 
 
-# ================== COULEURS STATUT & URGENCE ==================
+# ================== COULEURS ==================
 
-def get_statut_color(row_or_statut):
-    if isinstance(row_or_statut, dict) or isinstance(row_or_statut, pd.Series):
-        statut = str(row_or_statut.get("statut", "")).lower()
-    else:
-        statut = str(row_or_statut).lower()
-
-    statut_map = {
-        "prévu": "#F5EEDC",      # beige doux
-        "en cours": "#D9C8FF",   # violet pastel
-        "en attente": "#FFD6E7", # rose léger
-        "terminé": "#D9F8C4",    # vert léger
+def get_statut_color(statut):
+    """Retourne la couleur associée au statut."""
+    statut = str(statut).lower()
+    mapping = {
+        "prévu": "#F5EEDC",
+        "en cours": "#D9C8FF",
+        "en attente": "#FFD6E7",
+        "terminé": "#D9F8C4",
     }
-    return statut_map.get(statut, "")
+    return mapping.get(statut, "")
 
 
 def get_urgence_color(row, opts):
-    """Retourne UNIQUEMENT la couleur d'urgence (rouge / orange / jaune)."""
+    """Retourne la couleur d'urgence rouge/orange/jaune."""
     d = row.get("date")
     if pd.isna(d):
         return ""
@@ -120,24 +125,36 @@ def get_urgence_color(row, opts):
     return ""
 
 
-def style_cells(row, df_filtered, opts):
-    """
-    Style par cellule :
-    - Urgence sur Nom / Code / Date
-    - Statut colore uniquement la colonne Statut
-    """
-    styles = []
-    base_row = df_filtered.loc[row.name]  # on récupère la ligne originale (dates en datetime)
-    urg = get_urgence_color(base_row, opts)
-    statut_color = get_statut_color(base_row)
+# ================== STYLE DU TABLEAU STREAMLIT ==================
 
-    for col in row.index:
-        if col in ["Nom de l'affaire", "Code de l'affaire", "Date"] and urg:
-            styles.append(f"background-color: {urg}")
-        elif col == "Statut" and statut_color:
-            styles.append(f"background-color: {statut_color}")
-        else:
-            styles.append("")
+def make_style_table(df_display, df_filtered, opts):
+    """
+    Applique les couleurs :
+    - Urgence sur Nom / Code / Date
+    - Statut uniquement sur Statut
+    - Autres cellules neutres
+    """
+    # Réaligner df_filtered sur le même index que df_display
+    df_f = df_filtered.loc[df_display.index]
+
+    styles = pd.DataFrame("", index=df_display.index, columns=df_display.columns)
+
+    for idx in df_display.index:
+        r = df_f.loc[idx]
+
+        urg = get_urgence_color(r, opts)
+        stat_col = get_statut_color(r["statut"])
+
+        # Urgence sur colonnes principales
+        if urg:
+            for col in ["Nom de l'affaire", "Code de l'affaire", "Date"]:
+                if col in styles.columns:
+                    styles.loc[idx, col] = f"background-color: {urg}"
+
+        # Couleur statut
+        if stat_col and "Statut" in styles.columns:
+            styles.loc[idx, "Statut"] = f"background-color: {stat_col}"
+
     return styles
 
 
@@ -180,6 +197,7 @@ def build_pdf(df, opts, qr_enabled=False, qr_url=None):
     c.drawCentredString(width / 2, height - 40, "Gestion Projet Priorités")
 
     c.setFont("Helvetica", 10)
+    c.setFillColor(colors.white)
     c.drawString(40, height - 58, f"Export du {datetime.now().strftime('%d/%m/%Y %H:%M')}")
 
     # ----- Légende -----
@@ -228,31 +246,18 @@ def build_pdf(df, opts, qr_enabled=False, qr_url=None):
     y -= 24
     c.setFont("Helvetica", 9)
 
+    # Tri par date pour le PDF
+    df_sorted = df.sort_values("date")
+
     # Fonctions couleurs internes pour le PDF
     def urgence_color_pdf(row):
-        d = row["date"]
-        if pd.isna(d):
-            return None
-        delta = (d.date() - datetime.today().date()).days
-        if delta <= opts["rouge"]:
-            return "#FF4B4B"
-        if delta <= opts["orange"]:
-            return "#FFA500"
-        if delta <= opts["jaune"]:
-            return "#FFD966"
-        return None
+        return get_urgence_color(row, opts)
 
     def statut_color_pdf(statut):
-        mapping = {
-            "prévu": "#F5EEDC",
-            "en cours": "#D9C8FF",
-            "en attente": "#FFD6E7",
-            "terminé": "#D9F8C4",
-        }
-        return mapping.get(str(statut).lower(), None)
+        return get_statut_color(statut)
 
     # ----- Lignes -----
-    for _, row in df.iterrows():
+    for _, row in df_sorted.iterrows():
         # Saut de page si nécessaire
         if y < 80:
             c.showPage()
@@ -313,9 +318,12 @@ def build_pdf(df, opts, qr_enabled=False, qr_url=None):
 
     # ----- QR CODE en bas -----
     if qr_enabled and qr_url:
-        qr_img = qrcode.make(qr_url)
+        qr = qrcode.QRCode(box_size=3, border=1)
+        qr.add_data(qr_url)
+        qr.make(fit=True)
+        img = qr.make_image(fill_color="black", back_color="white")
         qr_buf = BytesIO()
-        qr_img.save(qr_buf, format="PNG")
+        img.save(qr_buf, format="PNG")
         qr_buf.seek(0)
 
         c.drawImage(qr_buf, width - 45 * mm, 15 * mm, width=30 * mm, preserveAspectRatio=True)
@@ -653,10 +661,8 @@ else:
             }
         )
 
-        styled = df_display.style.apply(
-            lambda row: style_cells(row, df_filtered, opts),
-            axis=1
-        )
+        styles = make_style_table(df_display, df_filtered, opts)
+        styled = df_display.style.apply(lambda _: styles, axis=None)
 
         st.caption(f"{len(df_filtered)} chantier(s) affiché(s)")
         st.dataframe(styled, use_container_width=True)
@@ -740,7 +746,6 @@ if df.empty:
 else:
     col1, col2 = st.columns(2)
     with col1:
-        # PDF avec QR code éventuel
         qr_url_for_pdf = st.session_state.get("qr_url") or None
         st.download_button(
             "📄 Export PDF",
@@ -757,8 +762,12 @@ st.divider()
 
 if opts["show_qr"]:
     st.subheader("📱 QR Code atelier")
-    qr_url_input = st.text_input("URL de l'application", key="qr_url_input", value=st.session_state["qr_url"])
-    st.session_state["qr_url"] = qr_url_input
+    qr_url = st.text_input(
+        "URL de l'application",
+        key="qr_url",
+        value=st.session_state.get("qr_url", "")
+    )
+    st.session_state["qr_url"] = qr_url
 
-    if qr_url_input:
-        st.image(build_qr_image(qr_url_input), width=200)
+    if qr_url:
+        st.image(build_qr_image(qr_url), width=200)
