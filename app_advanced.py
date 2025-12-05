@@ -96,25 +96,28 @@ def get_row_color(row, opts):
             "gris": "#DDDDDD",
         }[prio]
 
-    # 2) Statut
+    # 2) Statut (nouvelles couleurs)
     statut = str(row.get("statut", "")).lower()
     statut_map = {
-        "prévu": "#E5F6FF",
-        "en cours": "#FFE4B5",
-        "en attente": "#F0F0F0",
-        "terminé": "",
+        "prévu": "#F5EEDC",      # beige doux
+        "en cours": "#D9C8FF",   # violet
+        "en attente": "#FFD6E7", # rose léger
+        "terminé": "#D9F8C4",    # vert léger
     }
 
     if statut in statut_map and statut_map[statut]:
-        return statut_map[statut]
+        # On ne retourne la couleur de statut que si pas surchargé par l'urgence
+        pass  # on applique d'abord l'urgence plus bas
 
-    # 3) Automatique par date (délais)
+    # 3) Automatique par date (délai)
     d = row.get("date")
     if pd.isna(d):
-        return ""
+        # si pas de date, on peut au moins colorer par statut
+        return statut_map.get(statut, "")
 
     delta = (d.date() - datetime.today().date()).days
 
+    # L'urgence prend le dessus sur le statut
     if delta <= opts["rouge"]:
         return "#FF4B4B"
     if delta <= opts["orange"]:
@@ -122,7 +125,8 @@ def get_row_color(row, opts):
     if delta <= opts["jaune"]:
         return "#FFD966"
 
-    return ""
+    # Sinon couleur de statut
+    return statut_map.get(statut, "")
 
 
 def style_urgence(row, opts):
@@ -137,6 +141,17 @@ def build_excel(df):
     df2 = df.copy()
     if not df2.empty and pd.api.types.is_datetime64_any_dtype(df2["date"]):
         df2["date"] = df2["date"].dt.strftime("%d/%m/%Y")
+    df2.rename(
+        columns={
+            "nom": "Nom de l'affaire",
+            "ref": "Code de l'affaire",
+            "date": "Date",
+            "statut": "Statut",
+            "priorite": "Priorité",
+            "commentaire": "Commentaire",
+        },
+        inplace=True,
+    )
     df2.to_excel(buf, index=False)
     buf.seek(0)
     return buf
@@ -153,10 +168,10 @@ def build_pdf(df):
     y -= 30
 
     c.setFont("Helvetica-Bold", 11)
-    c.drawString(40, y, "Nom")
-    c.drawString(200, y, "Code")
-    c.drawString(300, y, "Date")
-    c.drawString(380, y, "Statut")
+    c.drawString(30, y, "Nom de l'affaire")
+    c.drawString(220, y, "Code")
+    c.drawString(320, y, "Date")
+    c.drawString(400, y, "Statut")
     y -= 20
 
     c.setFont("Helvetica", 10)
@@ -165,13 +180,13 @@ def build_pdf(df):
             c.showPage()
             y = height - 40
 
-        c.drawString(40, y, str(row["nom"])[:25])
-        c.drawString(200, y, str(row["ref"])[:12])
+        c.drawString(30, y, str(row["nom"])[:30])
+        c.drawString(220, y, str(row["ref"])[:15])
         if not pd.isna(row["date"]):
-            c.drawString(300, y, row["date"].strftime("%d/%m/%Y"))
+            c.drawString(320, y, row["date"].strftime("%d/%m/%Y"))
         else:
-            c.drawString(300, y, "-")
-        c.drawString(380, y, str(row["statut"]))
+            c.drawString(320, y, "-")
+        c.drawString(400, y, str(row["statut"])[:15])
         y -= 15
 
     c.save()
@@ -273,14 +288,22 @@ if mode == "Administrateur":
 df = charger_chantiers()
 opts = charger_options()
 
+if "show_filters" not in st.session_state:
+    st.session_state["show_filters"] = False
+
 
 # ================== OPTIONS ADMIN ==================
+st.divider()
 if admin:
-    st.sidebar.markdown("### ⚙️ Options d'urgence")
-    rouge = st.sidebar.number_input("Jours max ROUGE", 0, 90, opts["rouge"], key="rouge_opt")
-    orange = st.sidebar.number_input("Jours max ORANGE", 0, 90, opts["orange"], key="orange_opt")
-    jaune = st.sidebar.number_input("Jours max JAUNE", 0, 90, opts["jaune"], key="jaune_opt")
-    show_qr = st.sidebar.checkbox("Afficher QR Code atelier", value=opts["show_qr"], key="qr_opt")
+    st.subheader("⚙️ Options générales")
+
+    col_opt1, col_opt2 = st.columns(2)
+    with col_opt1:
+        rouge = st.sidebar.number_input("Jours max ROUGE", 0, 90, opts["rouge"], key="rouge_opt")
+        orange = st.sidebar.number_input("Jours max ORANGE", 0, 90, opts["orange"], key="orange_opt")
+        jaune = st.sidebar.number_input("Jours max JAUNE", 0, 90, opts["jaune"], key="jaune_opt")
+    with col_opt2:
+        show_qr = st.sidebar.checkbox("Afficher QR Code atelier", value=opts["show_qr"], key="qr_opt")
 
     if st.sidebar.button("Enregistrer options", key="save_options"):
         opts.update({"rouge": rouge, "orange": orange, "jaune": jaune, "show_qr": show_qr})
@@ -290,9 +313,9 @@ if admin:
 
 # ================== IMPORT EXCEL ==================
 if admin:
-    st.subheader("📥 Import Excel (filtré sur Compétence = 'Montage')")
+    st.subheader("📥 Import Excel (Compétence = 'Montage')")
 
-    fichier_excel = st.file_uploader("Importer un fichier Excel", type=["xlsx"], key="import_excel")
+    fichier_excel = st.file_uploader("Importer un export Excel (.xlsx)", type=["xlsx"], key="import_excel")
 
     df_excel = pd.DataFrame()
 
@@ -300,14 +323,14 @@ if admin:
         df_excel = importer_excel(fichier_excel)
 
         if not df_excel.empty:
-            st.success("Fichier importé ✔")
-            st.dataframe(df_excel)
+            st.success("Fichier importé ✔ — lignes 'Montage' détectées.")
+            st.dataframe(df_excel, use_container_width=True)
 
             choix = st.selectbox(
                 "Sélectionner une ligne à ajouter",
                 df_excel.index,
                 key="choix_excel",
-                format_func=lambda i: f"{df_excel.loc[i,'nom']} — {df_excel.loc[i,'ref']}"
+                format_func=lambda i: f"{df_excel.loc[i, 'nom']} — {df_excel.loc[i, 'ref']}"
             )
 
             if st.button("➕ Ajouter depuis Excel", key="add_from_excel_btn"):
@@ -327,6 +350,7 @@ if admin:
                 st.success("Chantier ajouté ✔")
                 st.rerun()
 
+st.divider()
 
 # ================== AJOUT MANUEL ==================
 if admin:
@@ -334,10 +358,10 @@ if admin:
 
     col1, col2 = st.columns(2)
     with col1:
-        nom = st.text_input("Nom du chantier", key="nom_manual")
+        nom = st.text_input("Nom de l'affaire", key="nom_manual")
         date_montage = st.date_input("Date de montage", value=date.today(), key="date_manual")
     with col2:
-        ref = st.text_input("Référence", key="ref_manual")
+        ref = st.text_input("Code de l'affaire", key="ref_manual")
         statut = st.selectbox("Statut", ["Prévu", "En cours", "En attente", "Terminé"], key="statut_manual")
 
     commentaire = st.text_area("Commentaire", key="comment_manual")
@@ -363,8 +387,10 @@ if admin:
             st.success("Chantier ajouté ✔")
             st.rerun()
         else:
-            st.error("Entrez au moins un nom et une référence.")
+            st.error("Entrez au moins un nom et un code.")
 
+
+st.divider()
 
 # ================== LISTE + RECHERCHE + FILTRES ==================
 
@@ -375,62 +401,87 @@ if df.empty:
 else:
     df_sorted = df.sort_values("date")
 
-    st.markdown("### 🔎 Recherche & filtres")
+    # Bouton pour afficher / masquer le panneau de filtres
+    col_btn, _ = st.columns([1, 3])
+    with col_btn:
+        if st.button("🔎 Filtres", key="toggle_filters"):
+            st.session_state["show_filters"] = not st.session_state["show_filters"]
 
-    col_filters, col_table = st.columns([1, 3])
+    statuts_sel = []
+    prio_sel_internal = []
+    start_date = end_date = None
+    search = ""
+
+    if st.session_state["show_filters"]:
+        st.markdown("#### 🎛 Panneau de filtres")
+        col_filters, col_table = st.columns([1, 3])
+    else:
+        col_filters, col_table = st.columns([0.0001, 1])  # hack : col vide
 
     with col_filters:
-        search = st.text_input(
-            "Recherche texte",
-            placeholder="Nom, référence, statut, commentaire...",
-            key="search_global"
-        )
+        if st.session_state["show_filters"]:
+            st.markdown("##### Filtres")
 
-        statuts_uniques = sorted(df_sorted["statut"].dropna().unique().tolist())
-        statuts_sel = st.multiselect(
-            "Filtrer par statut",
-            statuts_uniques,
-            default=statuts_uniques,
-            key="filter_statut"
-        )
-
-        prio_map_display = {
-            "auto": "Automatique",
-            "rouge": "Rouge",
-            "orange": "Orange",
-            "jaune": "Jaune",
-            "gris": "Gris",
-        }
-        prio_uniques = sorted(df_sorted["priorite"].dropna().unique().tolist())
-        prio_display_options = [prio_map_display.get(p, p) for p in prio_uniques]
-
-        prio_sel_display = st.multiselect(
-            "Filtrer par priorité",
-            prio_display_options,
-            default=prio_display_options,
-            key="filter_prio"
-        )
-
-        inv_prio_map = {v: k for k, v in prio_map_display.items()}
-        prio_sel_internal = [inv_prio_map.get(p, p) for p in prio_sel_display]
-
-        dates_valides = df_sorted["date"].dropna()
-        start_date = end_date = None
-        if not dates_valides.empty:
-            min_date = dates_valides.min().date()
-            max_date = dates_valides.max().date()
-            start_date = st.date_input(
-                "Date min",
-                value=min_date,
-                key="filter_date_min"
+            search = st.text_input(
+                "Recherche texte",
+                placeholder="Nom, code, statut, commentaire...",
+                key="search_global"
             )
-            end_date = st.date_input(
-                "Date max",
-                value=max_date,
-                key="filter_date_max"
+
+            statuts_uniques = sorted(df_sorted["statut"].dropna().unique().tolist())
+            statuts_sel = st.multiselect(
+                "Statut",
+                statuts_uniques,
+                default=statuts_uniques,
+                key="filter_statut"
             )
-        else:
-            st.caption("Aucune date valide pour filtrer.")
+
+            prio_map_display = {
+                "auto": "Automatique",
+                "rouge": "Rouge",
+                "orange": "Orange",
+                "jaune": "Jaune",
+                "gris": "Gris",
+            }
+            prio_uniques = sorted(df_sorted["priorite"].dropna().unique().tolist())
+            prio_display_options = [prio_map_display.get(p, p) for p in prio_uniques]
+
+            prio_sel_display = st.multiselect(
+                "Priorité",
+                prio_display_options,
+                default=prio_display_options,
+                key="filter_prio"
+            )
+
+            inv_prio_map = {v: k for k, v in prio_map_display.items()}
+            prio_sel_internal = [inv_prio_map.get(p, p) for p in prio_sel_display]
+
+            dates_valides = df_sorted["date"].dropna()
+            if not dates_valides.empty:
+                min_date = dates_valides.min().date()
+                max_date = dates_valides.max().date()
+                start_date = st.date_input(
+                    "Date min",
+                    value=min_date,
+                    key="filter_date_min"
+                )
+                end_date = st.date_input(
+                    "Date max",
+                    value=max_date,
+                    key="filter_date_max"
+                )
+            else:
+                st.caption("Aucune date valide pour filtrer.")
+
+            if st.button("Réinitialiser les filtres", key="reset_filters"):
+                st.session_state["search_global"] = ""
+                st.session_state["filter_statut"] = statuts_uniques
+                st.session_state["filter_prio"] = prio_display_options
+                if "filter_date_min" in st.session_state:
+                    del st.session_state["filter_date_min"]
+                if "filter_date_max" in st.session_state:
+                    del st.session_state["filter_date_max"]
+                st.rerun()
 
     with col_table:
         df_filtered = df_sorted.copy()
@@ -452,32 +503,50 @@ else:
                 mask |= df_filtered[col].astype(str).str.contains(search, case=False, na=False)
             df_filtered = df_filtered[mask]
 
-        styled = df_filtered.style.apply(lambda row: style_urgence(row, opts), axis=1)
+        df_display = df_filtered.copy()
+        if not df_display.empty and pd.api.types.is_datetime64_any_dtype(df_display["date"]):
+            df_display["date"] = df_display["date"].dt.strftime("%d/%m/%Y")
+
+        df_display = df_display.rename(
+            columns={
+                "nom": "Nom de l'affaire",
+                "ref": "Code de l'affaire",
+                "date": "Date",
+                "statut": "Statut",
+                "priorite": "Priorité",
+                "commentaire": "Commentaire",
+            }
+        )
+
+        styled = df_display.style.apply(
+            lambda row: style_urgence(df_filtered.loc[row.name], opts), axis=1
+        )
         st.caption(f"{len(df_filtered)} chantier(s) affiché(s)")
         st.dataframe(styled, use_container_width=True)
 
     # ================== MODIFIER / SUPPRIMER (ADMIN) ==================
     if admin and not df_sorted.empty:
+        st.divider()
         st.subheader("🛠 Modifier ou supprimer un chantier")
 
         idx = st.selectbox(
             "Sélectionner un chantier",
             df_sorted.index,
             key="edit_select",
-            format_func=lambda i: f"{df_sorted.loc[i,'nom']} — {df_sorted.loc[i,'ref']}"
+            format_func=lambda i: f"{df_sorted.loc[i, 'nom']} — {df_sorted.loc[i, 'ref']}"
         )
 
         col1, col2 = st.columns(2)
         with col1:
-            new_nom = st.text_input("Nom", df.loc[idx, "nom"], key=f"edit_nom_{idx}")
+            new_nom = st.text_input("Nom de l'affaire", df.loc[idx, "nom"], key=f"edit_nom_{idx}")
             current_date = df.loc[idx, "date"]
             new_date = st.date_input(
-                "Date",
+                "Date de montage",
                 value=current_date.date() if not pd.isna(current_date) else date.today(),
                 key=f"edit_date_{idx}"
             )
         with col2:
-            new_ref = st.text_input("Référence", df.loc[idx, "ref"], key=f"edit_ref_{idx}")
+            new_ref = st.text_input("Code de l'affaire", df.loc[idx, "ref"], key=f"edit_ref_{idx}")
             new_statut = st.selectbox(
                 "Statut",
                 ["Prévu", "En cours", "En attente", "Terminé"],
@@ -525,6 +594,8 @@ else:
                 st.rerun()
 
 
+st.divider()
+
 # ================== EXPORTS ==================
 
 st.subheader("📤 Export")
@@ -538,6 +609,8 @@ else:
     with col2:
         st.download_button("📊 Export Excel", build_excel(df), "chantiers.xlsx")
 
+
+st.divider()
 
 # ================== QR CODE ==================
 
