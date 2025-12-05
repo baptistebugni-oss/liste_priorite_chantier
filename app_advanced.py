@@ -55,7 +55,8 @@ def charger_chantiers():
 
 def sauvegarder_chantiers(df):
     df2 = df.copy()
-    df2["date"] = df2["date"].astype(str)
+    if not df2.empty:
+        df2["date"] = df2["date"].astype(str)
     with open(DATA_FILE, "w", encoding="utf-8") as f:
         json.dump(df2.to_dict(orient="records"), f, ensure_ascii=False, indent=4)
 
@@ -86,7 +87,7 @@ def sauvegarder_options(opts):
 
 def get_row_color(row, opts):
     # 1) Priorité manuelle
-    prio = row["priorite"].lower()
+    prio = str(row.get("priorite", "auto")).lower()
     if prio in ("rouge", "orange", "jaune", "gris"):
         return {
             "rouge": "#FF4B4B",
@@ -96,7 +97,7 @@ def get_row_color(row, opts):
         }[prio]
 
     # 2) Statut
-    statut = row["statut"].lower()
+    statut = str(row.get("statut", "")).lower()
     statut_map = {
         "prévu": "#E5F6FF",
         "en cours": "#FFE4B5",
@@ -107,8 +108,8 @@ def get_row_color(row, opts):
     if statut in statut_map and statut_map[statut]:
         return statut_map[statut]
 
-    # 3) Automatique (date)
-    d = row["date"]
+    # 3) Automatique par date (délais)
+    d = row.get("date")
     if pd.isna(d):
         return ""
 
@@ -134,7 +135,8 @@ def style_urgence(row, opts):
 def build_excel(df):
     buf = BytesIO()
     df2 = df.copy()
-    df2["date"] = df2["date"].dt.strftime("%d/%m/%Y")
+    if not df2.empty and pd.api.types.is_datetime64_any_dtype(df2["date"]):
+        df2["date"] = df2["date"].dt.strftime("%d/%m/%Y")
     df2.to_excel(buf, index=False)
     buf.seek(0)
     return buf
@@ -165,7 +167,10 @@ def build_pdf(df):
 
         c.drawString(40, y, str(row["nom"])[:25])
         c.drawString(200, y, str(row["ref"])[:12])
-        c.drawString(300, y, row["date"].strftime("%d/%m/%Y") if not pd.isna(row["date"]) else "-")
+        if not pd.isna(row["date"]):
+            c.drawString(300, y, row["date"].strftime("%d/%m/%Y"))
+        else:
+            c.drawString(300, y, "-")
         c.drawString(380, y, str(row["statut"]))
         y -= 15
 
@@ -193,7 +198,6 @@ def importer_excel(file):
     df = pd.read_excel(file)
     df.columns = df.columns.str.strip().str.lower()
 
-    # Variantes reconnues
     possible_nom_cols = [
         "nom de l’affaire",
         "nom de l'affaire",
@@ -224,18 +228,20 @@ def importer_excel(file):
     col_code = find_col(possible_code_cols)
     col_debut = find_col(possible_debut_cols)
 
-    # Vérification
     missing = []
-    if col_nom is None: missing.append("Nom de l’affaire")
-    if col_code is None: missing.append("Code de l’affaire")
-    if col_debut is None: missing.append("Début")
-    if col_comp not in df.columns: missing.append("Compétence")
+    if col_nom is None:
+        missing.append("Nom de l’affaire")
+    if col_code is None:
+        missing.append("Code de l’affaire")
+    if col_debut is None:
+        missing.append("Début")
+    if col_comp not in df.columns:
+        missing.append("Compétence")
 
     if missing:
         st.error("⚠️ Colonnes manquantes : " + ", ".join(missing))
         return pd.DataFrame()
 
-    # Filtre Montage
     df_filtre = df[df[col_comp].astype(str).str.lower() == "montage"]
 
     if df_filtre.empty:
@@ -360,7 +366,7 @@ if admin:
             st.error("Entrez au moins un nom et une référence.")
 
 
-# ================== LISTE DES CHANTIERS ==================
+# ================== LISTE + RECHERCHE + FILTRES ==================
 
 st.subheader("📌 Liste des chantiers")
 
@@ -368,10 +374,90 @@ if df.empty:
     st.info("Aucun chantier enregistré.")
 else:
     df_sorted = df.sort_values("date")
-    styled = df_sorted.style.apply(lambda row: style_urgence(row, opts), axis=1)
-    st.dataframe(styled, use_container_width=True)
 
-    if admin:
+    st.markdown("### 🔎 Recherche & filtres")
+
+    col_filters, col_table = st.columns([1, 3])
+
+    with col_filters:
+        search = st.text_input(
+            "Recherche texte",
+            placeholder="Nom, référence, statut, commentaire...",
+            key="search_global"
+        )
+
+        statuts_uniques = sorted(df_sorted["statut"].dropna().unique().tolist())
+        statuts_sel = st.multiselect(
+            "Filtrer par statut",
+            statuts_uniques,
+            default=statuts_uniques,
+            key="filter_statut"
+        )
+
+        prio_map_display = {
+            "auto": "Automatique",
+            "rouge": "Rouge",
+            "orange": "Orange",
+            "jaune": "Jaune",
+            "gris": "Gris",
+        }
+        prio_uniques = sorted(df_sorted["priorite"].dropna().unique().tolist())
+        prio_display_options = [prio_map_display.get(p, p) for p in prio_uniques]
+
+        prio_sel_display = st.multiselect(
+            "Filtrer par priorité",
+            prio_display_options,
+            default=prio_display_options,
+            key="filter_prio"
+        )
+
+        inv_prio_map = {v: k for k, v in prio_map_display.items()}
+        prio_sel_internal = [inv_prio_map.get(p, p) for p in prio_sel_display]
+
+        dates_valides = df_sorted["date"].dropna()
+        start_date = end_date = None
+        if not dates_valides.empty:
+            min_date = dates_valides.min().date()
+            max_date = dates_valides.max().date()
+            start_date = st.date_input(
+                "Date min",
+                value=min_date,
+                key="filter_date_min"
+            )
+            end_date = st.date_input(
+                "Date max",
+                value=max_date,
+                key="filter_date_max"
+            )
+        else:
+            st.caption("Aucune date valide pour filtrer.")
+
+    with col_table:
+        df_filtered = df_sorted.copy()
+
+        if statuts_sel:
+            df_filtered = df_filtered[df_filtered["statut"].isin(statuts_sel)]
+
+        if prio_sel_internal:
+            df_filtered = df_filtered[df_filtered["priorite"].isin(prio_sel_internal)]
+
+        if start_date and end_date:
+            mask_date = df_filtered["date"].notna()
+            mask_date &= df_filtered["date"].dt.date.between(start_date, end_date)
+            df_filtered = df_filtered[mask_date]
+
+        if search:
+            mask = pd.Series(False, index=df_filtered.index)
+            for col in ["nom", "ref", "commentaire", "statut"]:
+                mask |= df_filtered[col].astype(str).str.contains(search, case=False, na=False)
+            df_filtered = df_filtered[mask]
+
+        styled = df_filtered.style.apply(lambda row: style_urgence(row, opts), axis=1)
+        st.caption(f"{len(df_filtered)} chantier(s) affiché(s)")
+        st.dataframe(styled, use_container_width=True)
+
+    # ================== MODIFIER / SUPPRIMER (ADMIN) ==================
+    if admin and not df_sorted.empty:
         st.subheader("🛠 Modifier ou supprimer un chantier")
 
         idx = st.selectbox(
@@ -390,17 +476,20 @@ else:
                 value=current_date.date() if not pd.isna(current_date) else date.today(),
                 key=f"edit_date_{idx}"
             )
-
         with col2:
             new_ref = st.text_input("Référence", df.loc[idx, "ref"], key=f"edit_ref_{idx}")
             new_statut = st.selectbox(
                 "Statut",
                 ["Prévu", "En cours", "En attente", "Terminé"],
                 index=["Prévu", "En cours", "En attente", "Terminé"].index(df.loc[idx, "statut"]),
-                key=f"edit_statut_{idx}"     # 🔥 Correction du bug DuplicateElementId
+                key=f"edit_statut_{idx}"
             )
 
-        new_commentaire = st.text_area("Commentaire", df.loc[idx, "commentaire"], key=f"edit_comment_{idx}")
+        new_commentaire = st.text_area(
+            "Commentaire",
+            df.loc[idx, "commentaire"],
+            key=f"edit_comment_{idx}"
+        )
 
         prio_list = ["Automatique", "Rouge", "Orange", "Jaune", "Gris"]
         current_prio = df.loc[idx, "priorite"]
