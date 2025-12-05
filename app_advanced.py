@@ -13,7 +13,7 @@ import qrcode
 
 DATA_FILE = "chantiers.json"
 OPTIONS_FILE = "options.json"
-ADMIN_PASSWORD = "admin123"  # à modifier si tu veux
+ADMIN_PASSWORD = "admin123"
 
 DEFAULT_OPTIONS = {
     "rouge": 2,
@@ -46,6 +46,7 @@ def charger_chantiers():
 
     df = pd.DataFrame(data)
     df = ensure_columns(df, COLUMNS)
+
     if not df.empty:
         df["date"] = pd.to_datetime(df["date"], errors="coerce")
 
@@ -54,8 +55,7 @@ def charger_chantiers():
 
 def sauvegarder_chantiers(df):
     df2 = df.copy()
-    if not df2.empty:
-        df2["date"] = df2["date"].astype(str)
+    df2["date"] = df2["date"].astype(str)
     with open(DATA_FILE, "w", encoding="utf-8") as f:
         json.dump(df2.to_dict(orient="records"), f, ensure_ascii=False, indent=4)
 
@@ -64,13 +64,16 @@ def charger_options():
     if not os.path.exists(OPTIONS_FILE):
         sauvegarder_options(DEFAULT_OPTIONS)
         return DEFAULT_OPTIONS.copy()
+
     try:
         with open(OPTIONS_FILE, "r", encoding="utf-8") as f:
             opts = json.load(f)
     except:
         opts = {}
+
     for k, v in DEFAULT_OPTIONS.items():
         opts.setdefault(k, v)
+
     return opts
 
 
@@ -79,7 +82,7 @@ def sauvegarder_options(opts):
         json.dump(opts, f, indent=4)
 
 
-# ================== SYSTEME DE PRIORITÉ (OPTION D) ==================
+# ================== PRIORITÉS OPTION D ==================
 
 def get_row_color(row, opts):
     # 1) Priorité manuelle
@@ -94,27 +97,30 @@ def get_row_color(row, opts):
 
     # 2) Statut
     statut = row["statut"].lower()
-    statut_mapping = {
+    statut_map = {
         "prévu": "#E5F6FF",
         "en cours": "#FFE4B5",
         "en attente": "#F0F0F0",
         "terminé": "",
     }
-    if statut in statut_mapping and statut_mapping[statut]:
-        return statut_mapping[statut]
 
-    # 3) Automatique par date
+    if statut in statut_map and statut_map[statut]:
+        return statut_map[statut]
+
+    # 3) Automatique (date)
     d = row["date"]
     if pd.isna(d):
         return ""
+
     delta = (d.date() - datetime.today().date()).days
 
     if delta <= opts["rouge"]:
         return "#FF4B4B"
-    elif delta <= opts["orange"]:
+    if delta <= opts["orange"]:
         return "#FFA500"
-    elif delta <= opts["jaune"]:
+    if delta <= opts["jaune"]:
         return "#FFD966"
+
     return ""
 
 
@@ -150,12 +156,13 @@ def build_pdf(df):
     c.drawString(300, y, "Date")
     c.drawString(380, y, "Statut")
     y -= 20
-    c.setFont("Helvetica", 10)
 
+    c.setFont("Helvetica", 10)
     for _, row in df.iterrows():
         if y < 40:
             c.showPage()
             y = height - 40
+
         c.drawString(40, y, str(row["nom"])[:25])
         c.drawString(200, y, str(row["ref"])[:12])
         c.drawString(300, y, row["date"].strftime("%d/%m/%Y") if not pd.isna(row["date"]) else "-")
@@ -180,33 +187,68 @@ def build_qr(url):
     return buf
 
 
-# ================== IMPORT EXCEL (CORRIGÉ POUR TON FICHIER) ==================
+# ================== IMPORT EXCEL ULTRA-ROBUSTE ==================
 
 def importer_excel(file):
     df = pd.read_excel(file)
     df.columns = df.columns.str.strip().str.lower()
 
+    # Variantes de "Nom de l'affaire"
+    possible_nom_cols = [
+        "nom de l’affaire",
+        "nom de l'affaire",
+        "nom de laffaire",
+        "nom d’affaire",
+        "nom d'affaire",
+        "nom affaire",
+    ]
+
+    # Variantes "Code de l'affaire"
+    possible_code_cols = [
+        "code de l’affaire",
+        "code de l'affaire",
+        "code de laffaire",
+        "code affaire",
+        "codedaffaire",
+    ]
+
+    # Variantes "Début"
+    possible_debut_cols = ["début", "debut"]
+
+    def find_col(possible):
+        for col in df.columns:
+            if col in possible:
+                return col
+        return None
+
     col_comp = "compétence"
-    col_nom = "nom de l’affaire"
-    col_code = "code de l’affaire"
-    col_debut = "début"
+    col_nom = find_col(possible_nom_cols)
+    col_code = find_col(possible_code_cols)
+    col_debut = find_col(possible_debut_cols)
 
-    for col in [col_comp, col_nom, col_code, col_debut]:
-        if col not in df.columns:
-            st.error(f"⚠️ Colonne manquante : {col}")
-            return pd.DataFrame()
+    # Vérification
+    missing = []
+    if col_nom is None: missing.append("Nom de l’affaire")
+    if col_code is None: missing.append("Code de l’affaire")
+    if col_debut is None: missing.append("Début")
+    if col_comp not in df.columns: missing.append("Compétence")
 
-    df_filtre = df[df[col_comp].astype(str).str.lower() == "montage"].copy()
-
-    if df_filtre.empty:
-        st.warning("⚠️ Aucune ligne 'Montage' trouvée.")
+    if missing:
+        st.error("⚠️ Colonnes manquantes : " + ", ".join(missing))
         return pd.DataFrame()
 
-    df_result = df_filtre[[col_nom, col_code, col_debut]].copy()
-    df_result.columns = ["nom", "ref", "date"]
-    df_result["date"] = pd.to_datetime(df_result["date"], errors="coerce")
+    # Filtre Montage
+    df_filtre = df[df[col_comp].astype(str).str.lower() == "montage"]
 
-    return df_result
+    if df_filtre.empty:
+        st.warning("Aucune ligne 'Montage' trouvée.")
+        return pd.DataFrame()
+
+    df_res = df_filtre[[col_nom, col_code, col_debut]].copy()
+    df_res.columns = ["nom", "ref", "date"]
+    df_res["date"] = pd.to_datetime(df_res["date"], errors="coerce")
+
+    return df_res
 
 
 # ================== INTERFACE STREAMLIT ==================
@@ -214,8 +256,10 @@ def importer_excel(file):
 st.set_page_config(page_title="Liste Priorité Chantier", layout="wide")
 st.title("📋 Gestion des priorités chantier")
 
+# Mode
 mode = st.sidebar.selectbox("Mode", ["Lecture seule", "Administrateur"])
 admin = False
+
 if mode == "Administrateur":
     mdp = st.sidebar.text_input("Mot de passe", type="password")
     if mdp == ADMIN_PASSWORD:
@@ -230,10 +274,10 @@ opts = charger_options()
 # ================== OPTIONS ADMIN ==================
 if admin:
     st.sidebar.markdown("### ⚙️ Options d'urgence")
-    rouge = st.sidebar.number_input("Jours max rouge", 0, 90, opts["rouge"])
-    orange = st.sidebar.number_input("Jours max orange", 0, 90, opts["orange"])
-    jaune = st.sidebar.number_input("Jours max jaune", 0, 90, opts["jaune"])
-    show_qr = st.sidebar.checkbox("Afficher QR code", value=opts["show_qr"])
+    rouge = st.sidebar.number_input("Jours max ROUGE", 0, 90, opts["rouge"])
+    orange = st.sidebar.number_input("Jours max ORANGE", 0, 90, opts["orange"])
+    jaune = st.sidebar.number_input("Jours max JAUNE", 0, 90, opts["jaune"])
+    show_qr = st.sidebar.checkbox("Afficher QR Code", value=opts["show_qr"])
 
     if st.sidebar.button("Enregistrer options"):
         opts.update({"rouge": rouge, "orange": orange, "jaune": jaune, "show_qr": show_qr})
@@ -243,25 +287,28 @@ if admin:
 
 # ================== IMPORT EXCEL ==================
 if admin:
-    st.subheader("📥 Import Excel (filtré 'Montage')")
-    fichier_excel = st.file_uploader("Importer un export Excel", type=["xlsx"])
+    st.subheader("📥 Import Excel (filtré automatiquement sur Compétence = 'Montage')")
+
+    fichier_excel = st.file_uploader("Importer un export Excel (.xlsx)", type=["xlsx"])
 
     df_excel = pd.DataFrame()
 
     if fichier_excel:
         df_excel = importer_excel(fichier_excel)
+
         if not df_excel.empty:
-            st.success("Fichier importé avec succès ✔")
+            st.success("Fichier importé ✔ — Lignes 'Montage' détectées.")
             st.dataframe(df_excel)
 
             choix = st.selectbox(
                 "Sélectionner une ligne à ajouter",
                 df_excel.index,
-                format_func=lambda i: f"{df_excel.loc[i,'nom']} — {df_excel.loc[i,'ref']}"
+                format_func=lambda i: f"{df_excel.loc[i, 'nom']} — {df_excel.loc[i, 'ref']}"
             )
 
-            if st.button("Ajouter ce chantier issu de l'Excel"):
+            if st.button("➕ Ajouter depuis Excel"):
                 ligne = df_excel.loc[choix]
+
                 new = {
                     "nom": ligne["nom"],
                     "ref": ligne["ref"],
@@ -270,6 +317,7 @@ if admin:
                     "statut": "Prévu",
                     "priorite": "auto",
                 }
+
                 df = pd.concat([df, pd.DataFrame([new])], ignore_index=True)
                 sauvegarder_chantiers(df)
                 st.success("Chantier ajouté ✔")
@@ -278,33 +326,39 @@ if admin:
 
 # ================== AJOUT MANUEL ==================
 if admin:
-    st.subheader("➕ Ajouter manuellement")
+    st.subheader("✏️ Ajouter un chantier manuellement")
 
     col1, col2 = st.columns(2)
     with col1:
         nom = st.text_input("Nom du chantier")
-        date_montage = st.date_input("Date", value=date.today())
+        date_montage = st.date_input("Date de montage", value=date.today())
     with col2:
-        ref = st.text_input("Référence")
+        ref = st.text_input("Référence / Code")
         statut = st.selectbox("Statut", ["Prévu", "En cours", "En attente", "Terminé"])
 
     commentaire = st.text_area("Commentaire")
-    prio = st.selectbox("Priorité manuelle", ["Automatique", "Rouge", "Orange", "Jaune", "Gris"])
 
-    if st.button("Ajouter chantier manuel"):
-        df = charger_chantiers()
-        new = {
-            "nom": nom,
-            "ref": ref,
-            "date": str(date_montage),
-            "commentaire": commentaire,
-            "statut": statut,
-            "priorite": prio.lower() if prio != "Automatique" else "auto",
-        }
-        df = pd.concat([df, pd.DataFrame([new])], ignore_index=True)
-        sauvegarder_chantiers(df)
-        st.success("Ajouté ✔")
-        st.rerun()
+    priorite_man = st.selectbox(
+        "Priorité manuelle",
+        ["Automatique", "Rouge", "Orange", "Jaune", "Gris"]
+    )
+
+    if st.button("Ajouter ce chantier"):
+        if nom and ref:
+            new = {
+                "nom": nom,
+                "ref": ref,
+                "date": str(date_montage),
+                "commentaire": commentaire,
+                "statut": statut,
+                "priorite": priorite_man.lower() if priorite_man != "Automatique" else "auto",
+            }
+            df = pd.concat([df, pd.DataFrame([new])], ignore_index=True)
+            sauvegarder_chantiers(df)
+            st.success("Chantier ajouté ✔")
+            st.rerun()
+        else:
+            st.error("Veuillez entrer au moins un nom et une référence.")
 
 
 # ================== LISTE DES CHANTIERS ==================
@@ -312,15 +366,15 @@ if admin:
 st.subheader("📌 Liste des chantiers")
 
 if df.empty:
-    st.info("Aucun chantier pour le moment.")
+    st.info("Aucun chantier enregistré.")
 else:
-    df_sorted = df.sort_values("date")
+    df_sorted = df.sort_values(by="date")
     styled = df_sorted.style.apply(lambda row: style_urgence(row, opts), axis=1)
     st.dataframe(styled, use_container_width=True)
 
-    # MODIFIER / SUPPRIMER
+    # -------- Modification / Suppression (admin) --------
     if admin:
-        st.subheader("🛠 Modifier / Supprimer")
+        st.subheader("🛠 Modifier ou supprimer un chantier")
 
         idx = st.selectbox(
             "Sélectionner un chantier",
@@ -331,7 +385,11 @@ else:
         col1, col2 = st.columns(2)
         with col1:
             new_nom = st.text_input("Nom", df.loc[idx, "nom"])
-            new_date = st.date_input("Date", value=df.loc[idx, "date"].date())
+            current_date = df.loc[idx, "date"]
+            new_date = st.date_input(
+                "Date",
+                value=current_date.date() if not pd.isna(current_date) else date.today()
+            )
         with col2:
             new_ref = st.text_input("Référence", df.loc[idx, "ref"])
             new_statut = st.selectbox(
@@ -340,38 +398,43 @@ else:
                 index=["Prévu", "En cours", "En attente", "Terminé"].index(df.loc[idx, "statut"])
             )
 
-        new_comment = st.text_area("Commentaire", df.loc[idx, "commentaire"])
-        new_prio = st.selectbox(
-            "Priorité manuelle",
-            ["Automatique", "Rouge", "Orange", "Jaune", "Gris"],
-            index=["Automatique", "Rouge", "Orange", "Jaune", "Gris"].index(
-                df.loc[idx, "priorite"].capitalize() if df.loc[idx, "priorite"] != "auto" else "Automatique"
-            )
+        new_commentaire = st.text_area("Commentaire", df.loc[idx, "commentaire"])
+
+        prio_list = ["Automatique", "Rouge", "Orange", "Jaune", "Gris"]
+        current_prio = df.loc[idx, "priorite"]
+        display_prio = (
+            current_prio.capitalize()
+            if current_prio != "auto"
+            else "Automatique"
         )
 
+        new_prio = st.selectbox("Priorité manuelle", prio_list, index=prio_list.index(display_prio))
+
+        # Boutons
         colA, colB = st.columns(2)
 
         with colA:
-            if st.button("Enregistrer modifications"):
+            if st.button("💾 Enregistrer modifications"):
                 df.loc[idx, "nom"] = new_nom
                 df.loc[idx, "ref"] = new_ref
                 df.loc[idx, "date"] = str(new_date)
-                df.loc[idx, "commentaire"] = new_comment
                 df.loc[idx, "statut"] = new_statut
+                df.loc[idx, "commentaire"] = new_commentaire
                 df.loc[idx, "priorite"] = new_prio.lower() if new_prio != "Automatique" else "auto"
+
                 sauvegarder_chantiers(df)
-                st.success("Modifié ✔")
+                st.success("Modifications enregistrées ✔")
                 st.rerun()
 
         with colB:
-            if st.button("🗑 Supprimer"):
+            if st.button("🗑 Supprimer ce chantier"):
                 df = df.drop(idx).reset_index(drop=True)
                 sauvegarder_chantiers(df)
-                st.success("Supprimé ✔")
+                st.success("Chantier supprimé ✔")
                 st.rerun()
 
 
-# ================== EXPORT ==================
+# ================== EXPORTS ==================
 
 st.subheader("📤 Export")
 
@@ -380,15 +443,17 @@ if df.empty:
 else:
     col1, col2 = st.columns(2)
     with col1:
-        st.download_button("📄 PDF", build_pdf(df), "chantiers.pdf", "application/pdf")
+        st.download_button("📄 Export PDF", build_pdf(df), "chantiers.pdf", "application/pdf")
     with col2:
-        st.download_button("📊 Excel", build_excel(df), "chantiers.xlsx")
+        st.download_button("📊 Export Excel", build_excel(df), "chantiers.xlsx")
 
 
 # ================== QR CODE ==================
 
 if opts["show_qr"]:
-    st.subheader("📱 QR Code")
+    st.subheader("📱 QR Code atelier")
     url = st.text_input("URL de l'application")
     if url:
         st.image(build_qr(url), width=200)
+    else:
+        st.info("Entrez l’URL pour générer le QR code.")
