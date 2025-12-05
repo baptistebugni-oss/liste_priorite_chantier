@@ -5,6 +5,7 @@ import os
 from datetime import datetime, date
 from io import BytesIO
 
+from reportlab.lib.utils import ImageReader
 from reportlab.lib.pagesizes import A4
 from reportlab.pdfgen import canvas
 from reportlab.lib import colors
