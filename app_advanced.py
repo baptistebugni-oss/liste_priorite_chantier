@@ -8,6 +8,7 @@ from io import BytesIO
 from reportlab.lib.pagesizes import A4
 from reportlab.pdfgen import canvas
 from reportlab.lib import colors
+from reportlab.lib.units import mm
 import qrcode
 
 # ================== CONFIG ==================
@@ -86,8 +87,12 @@ def sauvegarder_options(opts):
 
 # ================== COULEURS STATUT & URGENCE ==================
 
-def get_statut_color(row):
-    statut = str(row.get("statut", "")).lower()
+def get_statut_color(row_or_statut):
+    if isinstance(row_or_statut, dict) or isinstance(row_or_statut, pd.Series):
+        statut = str(row_or_statut.get("statut", "")).lower()
+    else:
+        statut = str(row_or_statut).lower()
+
     statut_map = {
         "prévu": "#F5EEDC",      # beige doux
         "en cours": "#D9C8FF",   # violet pastel
@@ -98,7 +103,7 @@ def get_statut_color(row):
 
 
 def get_urgence_color(row, opts):
-    """Retourne UNIQUEMENT la couleur d'urgence (rouge / orange / jaune), pas le statut."""
+    """Retourne UNIQUEMENT la couleur d'urgence (rouge / orange / jaune)."""
     d = row.get("date")
     if pd.isna(d):
         return ""
@@ -115,30 +120,24 @@ def get_urgence_color(row, opts):
     return ""
 
 
-def make_style_table(df_display, df_filtered, opts):
+def style_cells(row, df_filtered, opts):
     """
-    Crée une matrice de styles :
-    - applique la couleur d'urgence sur Nom / Code / Date
-    - applique la couleur statut sur Statut
-    - autres colonnes sans couleur
+    Style par cellule :
+    - Urgence sur Nom / Code / Date
+    - Statut colore uniquement la colonne Statut
     """
-    styles = pd.DataFrame("", index=df_display.index, columns=df_display.columns)
+    styles = []
+    base_row = df_filtered.loc[row.name]  # on récupère la ligne originale (dates en datetime)
+    urg = get_urgence_color(base_row, opts)
+    statut_color = get_statut_color(base_row)
 
-    for idx in df_display.index:
-        base_row = df_filtered.loc[idx]
-        urg_color = get_urgence_color(base_row, opts)
-        statut_color = get_statut_color(base_row)
-
-        # Couleur urgence sur Nom / Code / Date
-        if urg_color:
-            for col in ["Nom de l'affaire", "Code de l'affaire", "Date"]:
-                if col in styles.columns:
-                    styles.loc[idx, col] = f"background-color: {urg_color}"
-
-        # Couleur statut sur Statut
-        if statut_color and "Statut" in styles.columns:
-            styles.loc[idx, "Statut"] = f"background-color: {statut_color}"
-
+    for col in row.index:
+        if col in ["Nom de l'affaire", "Code de l'affaire", "Date"] and urg:
+            styles.append(f"background-color: {urg}")
+        elif col == "Statut" and statut_color:
+            styles.append(f"background-color: {statut_color}")
+        else:
+            styles.append("")
     return styles
 
 
@@ -165,105 +164,174 @@ def build_excel(df):
     return buf
 
 
-# ================== EXPORT PDF (mise en page premium) ==================
+# ================== EXPORT PDF PREMIUM ==================
 
-def build_pdf(df):
+def build_pdf(df, opts, qr_enabled=False, qr_url=None):
     buf = BytesIO()
     c = canvas.Canvas(buf, pagesize=A4)
     width, height = A4
 
-    # Bandeau titre
+    # ----- Bandeau titre -----
     c.setFillColor(colors.HexColor("#2F3C7E"))
-    c.rect(0, height - 80, width, 80, fill=1, stroke=0)
+    c.rect(0, height - 70, width, 70, fill=1, stroke=0)
 
     c.setFillColor(colors.white)
-    c.setFont("Helvetica-Bold", 18)
-    c.drawString(40, height - 50, "Liste des priorités chantier")
+    c.setFont("Helvetica-Bold", 22)
+    c.drawCentredString(width / 2, height - 40, "Gestion Projet Priorités")
 
     c.setFont("Helvetica", 10)
-    c.drawRightString(
-        width - 40,
-        height - 65,
-        f"Généré le {datetime.now().strftime('%d/%m/%Y %H:%M')}",
-    )
+    c.drawString(40, height - 58, f"Export du {datetime.now().strftime('%d/%m/%Y %H:%M')}")
 
-    # Marges
+    # ----- Légende -----
+    y = height - 110
+    c.setFont("Helvetica-Bold", 12)
+    c.setFillColor(colors.black)
+    c.drawString(40, y, "Légende des couleurs :")
+
+    y -= 20
+    legend_items = [
+        ("#FF4B4B", f"Urgence forte (≤ {opts['rouge']} jours)"),
+        ("#FFA500", f"Urgence moyenne (≤ {opts['orange']} jours)"),
+        ("#FFD966", f"Approche (≤ {opts['jaune']} jours)"),
+        ("#F5EEDC", "Statut : Prévu"),
+        ("#D9C8FF", "Statut : En cours"),
+        ("#FFD6E7", "Statut : En attente"),
+        ("#D9F8C4", "Statut : Terminé"),
+    ]
+
+    for color_hex, label in legend_items:
+        c.setFillColor(colors.HexColor(color_hex))
+        c.rect(40, y - 10, 8, 8, fill=1)
+        c.setFillColor(colors.black)
+        c.setFont("Helvetica", 10)
+        c.drawString(55, y - 9, label)
+        y -= 14
+
+    y -= 10
+
+    # ----- Tableau : colonnes -----
+    headers = ["Nom de l'affaire", "Code", "Date", "Statut"]
+    col_widths = [220, 70, 60, 80]
     left = 40
-    right = width - 40
-    y = height - 100
 
-    # En-têtes de colonnes
-    headers = ["Nom de l'affaire", "Code", "Date", "Statut", "Priorité"]
-    col_widths = [200, 80, 70, 80, 80]
-
-    # Bande en-têtes
-    c.setFillColor(colors.HexColor("#ECECEC"))
+    # En-têtes
+    c.setFillColor(colors.HexColor("#EFEFEF"))
     c.rect(left, y - 18, sum(col_widths), 18, fill=1, stroke=0)
 
-    c.setFillColor(colors.black)
     c.setFont("Helvetica-Bold", 10)
-
+    c.setFillColor(colors.black)
     x = left + 4
     for i, h in enumerate(headers):
-        c.drawString(x, y - 14, h)
+        c.drawString(x, y - 13, h)
         x += col_widths[i]
 
     y -= 24
     c.setFont("Helvetica", 9)
 
-    # Lignes de tableau
+    # Fonctions couleurs internes pour le PDF
+    def urgence_color_pdf(row):
+        d = row["date"]
+        if pd.isna(d):
+            return None
+        delta = (d.date() - datetime.today().date()).days
+        if delta <= opts["rouge"]:
+            return "#FF4B4B"
+        if delta <= opts["orange"]:
+            return "#FFA500"
+        if delta <= opts["jaune"]:
+            return "#FFD966"
+        return None
+
+    def statut_color_pdf(statut):
+        mapping = {
+            "prévu": "#F5EEDC",
+            "en cours": "#D9C8FF",
+            "en attente": "#FFD6E7",
+            "terminé": "#D9F8C4",
+        }
+        return mapping.get(str(statut).lower(), None)
+
+    # ----- Lignes -----
     for _, row in df.iterrows():
-        if y < 50:
+        # Saut de page si nécessaire
+        if y < 80:
             c.showPage()
-            # Re-dessiner l'en-tête sur la page suivante
             width, height = A4
-            y = height - 80
-            c.setFillColor(colors.HexColor("#ECECEC"))
-            c.rect(left, y - 18, sum(col_widths), 18, fill=1, stroke=0)
+            y = height - 60
+
+            c.setFillColor(colors.HexColor("#EFEFEF"))
+            c.rect(left, y - 18, sum(col_widths), 18, fill=1)
             c.setFillColor(colors.black)
             c.setFont("Helvetica-Bold", 10)
             x = left + 4
             for i, h in enumerate(headers):
-                c.drawString(x, y - 14, h)
+                c.drawString(x, y - 13, h)
                 x += col_widths[i]
+
             y -= 24
             c.setFont("Helvetica", 9)
 
-        # Contenu
+        # Bande verticale d'urgence
+        urg = urgence_color_pdf(row)
+        if urg:
+            c.setFillColor(colors.HexColor(urg))
+            c.rect(left - 8, y - 14, 6, 14, fill=1, stroke=0)
+
+        # Données
         nom = str(row["nom"]) if not pd.isna(row["nom"]) else ""
-        ref = str(row["ref"]) if not pd.isna(row["ref"]) else ""
+        code = str(row["ref"]) if not pd.isna(row["ref"]) else ""
         if not pd.isna(row["date"]):
             date_str = row["date"].strftime("%d/%m/%Y")
         else:
             date_str = "-"
         statut = str(row["statut"]) if not pd.isna(row["statut"]) else ""
-        priorite = str(row["priorite"]) if not pd.isna(row["priorite"]) else ""
 
         x = left + 4
+
+        # Nom
         c.setFillColor(colors.black)
-        c.drawString(x, y, nom[:35])
+        c.drawString(x, y, nom[:40])
         x += col_widths[0]
 
-        c.drawString(x, y, ref[:12])
+        # Code
+        c.drawString(x, y, code[:15])
         x += col_widths[1]
 
+        # Date
         c.drawString(x, y, date_str)
         x += col_widths[2]
 
-        c.drawString(x, y, statut[:12])
-        x += col_widths[3]
+        # Statut avec fond coloré
+        statut_bg = statut_color_pdf(statut)
+        if statut_bg:
+            c.setFillColor(colors.HexColor(statut_bg))
+            c.rect(x, y - 12, col_widths[3] - 4, 14, fill=1, stroke=0)
+        c.setFillColor(colors.black)
+        c.drawString(x + 4, y, statut[:15])
 
-        c.drawString(x, y, priorite.capitalize() if priorite != "auto" else "Auto")
-        y -= 16
+        y -= 18
+
+    # ----- QR CODE en bas -----
+    if qr_enabled and qr_url:
+        qr_img = qrcode.make(qr_url)
+        qr_buf = BytesIO()
+        qr_img.save(qr_buf, format="PNG")
+        qr_buf.seek(0)
+
+        c.drawImage(qr_buf, width - 45 * mm, 15 * mm, width=30 * mm, preserveAspectRatio=True)
+
+        c.setFont("Helvetica", 9)
+        c.setFillColor(colors.black)
+        c.drawRightString(width - 10 * mm, 12 * mm, "Accès application")
 
     c.save()
     buf.seek(0)
     return buf
 
 
-# ================== QR CODE ==================
+# ================== QR CODE (IMAGE APP) ==================
 
-def build_qr(url):
+def build_qr_image(url):
     qr = qrcode.QRCode(box_size=8, border=2)
     qr.add_data(url)
     qr.make(fit=True)
@@ -357,6 +425,8 @@ opts = charger_options()
 
 if "show_filters" not in st.session_state:
     st.session_state["show_filters"] = False
+if "qr_url" not in st.session_state:
+    st.session_state["qr_url"] = ""
 
 st.divider()
 
@@ -466,7 +536,7 @@ if df.empty:
 else:
     df_sorted = df.sort_values("date")
 
-    # Bouton pour afficher / masquer le panneau de filtres
+    # Bouton Filtres
     col_btn, _ = st.columns([1, 3])
     with col_btn:
         if st.button("🔎 Filtres", key="toggle_filters"):
@@ -583,11 +653,9 @@ else:
             }
         )
 
-        df_display = df_display.reset_index(drop=True)
-
         styled = df_display.style.apply(
-            lambda _: make_style_table(df_display, df_filtered, opts),
-            axis=None
+            lambda row: style_cells(row, df_filtered, opts),
+            axis=1
         )
 
         st.caption(f"{len(df_filtered)} chantier(s) affiché(s)")
@@ -672,7 +740,14 @@ if df.empty:
 else:
     col1, col2 = st.columns(2)
     with col1:
-        st.download_button("📄 Export PDF", build_pdf(df), "chantiers.pdf", "application/pdf")
+        # PDF avec QR code éventuel
+        qr_url_for_pdf = st.session_state.get("qr_url") or None
+        st.download_button(
+            "📄 Export PDF",
+            build_pdf(df, opts, qr_enabled=opts["show_qr"], qr_url=qr_url_for_pdf),
+            file_name=f"Gestion_Projet_Priorites_{datetime.now().strftime('%Y-%m-%d')}.pdf",
+            mime="application/pdf"
+        )
     with col2:
         st.download_button("📊 Export Excel", build_excel(df), "chantiers.xlsx")
 
@@ -682,6 +757,8 @@ st.divider()
 
 if opts["show_qr"]:
     st.subheader("📱 QR Code atelier")
-    url = st.text_input("URL de l'application", key="qr_url")
-    if url:
-        st.image(build_qr(url), width=200)
+    qr_url_input = st.text_input("URL de l'application", key="qr_url_input", value=st.session_state["qr_url"])
+    st.session_state["qr_url"] = qr_url_input
+
+    if qr_url_input:
+        st.image(build_qr_image(qr_url_input), width=200)
