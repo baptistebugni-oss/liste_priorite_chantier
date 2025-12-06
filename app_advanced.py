@@ -352,43 +352,56 @@ st.divider()
 
 def importer_excel(file):
     df_x = pd.read_excel(file)
-    df_x.columns = df_x.columns.str.strip().str.lower()
 
-    col_comp = "compétence"
+    # Normalisation des colonnes
+    # - supprime les espaces
+    # - met tout en minuscules
+    # - remplace apostrophes fantômes “ ’ ” par "'"
+    df_x.columns = (
+        df_x.columns
+        .str.strip()
+        .str.lower()
+        .str.replace("’", "'", regex=False)
+    )
 
-    # Recherche tolérante des colonnes
-    possible_nom = ["nom d'affaire", "nom d'affaire", "nom affaire", "nom d’affaire"]
-    possible_code = ["code d'affaire", "code affaire", "code d’affaire"]
-    possible_date = ["début", "debut"]
+    # Noms attendus normalisés
+    required_nom = "nom de l'affaire"
+    required_code = "code de l'affaire"
+    required_comp = "compétence"
+    required_debut = "début"
 
-    def find_col(df, possibles):
-        for col in df.columns:
-            if col in possibles:
-                return col
-        return None
+    # Vérification colonne compétence
+    if required_comp not in df_x.columns:
+        st.error("❌ Colonne manquante dans l’Excel : Compétence")
+        return pd.DataFrame()
 
-    col_nom = find_col(df_x, possible_nom)
-    col_code = find_col(df_x, possible_code)
-    col_date = find_col(df_x, possible_date)
+    # Filtrer uniquement Montage
+    df_montage = df_x[df_x[required_comp].astype(str).str.lower() == "montage"]
 
+    if df_montage.empty:
+        st.warning("Aucune ligne 'Montage' trouvée.")
+        return pd.DataFrame()
+
+    # Vérification colonnes principales
     missing = []
-    if col_nom is None: missing.append("Nom d'affaire")
-    if col_code is None: missing.append("Code d'affaire")
-    if col_date is None: missing.append("Début")
-    if col_comp not in df_x.columns: missing.append("Compétence")
+    if required_nom not in df_x.columns:
+        missing.append("Nom de l'affaire")
+    if required_code not in df_x.columns:
+        missing.append("Code de l'affaire")
+    if required_debut not in df_x.columns:
+        missing.append("Début")
 
     if missing:
         st.error("❌ Colonnes manquantes dans l'Excel : " + ", ".join(missing))
         return pd.DataFrame()
 
-    df_filtered = df_x[df_x[col_comp].astype(str).str.lower() == "montage"]
+    # Extraction propre
+    df_out = df_montage[[required_nom, required_code, required_debut]].copy()
 
-    if df_filtered.empty:
-        st.warning("Aucune ligne avec 'Compétence = Montage' trouvée.")
-        return pd.DataFrame()
-
-    df_out = df_filtered[[col_nom, col_code, col_date]].copy()
+    # Renommage normalisé
     df_out.columns = ["nom", "ref", "date"]
+
+    # Conversion date
     df_out["date"] = pd.to_datetime(df_out["date"], errors="coerce")
 
     return df_out
