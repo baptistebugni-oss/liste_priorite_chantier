@@ -500,13 +500,13 @@ if st.session_state["gantt_fullscreen"]:
 
                 st.plotly_chart(fig, use_container_width=True)
 
-    # Bouton retour
-    if st.button("🔙 Retour à la vue principale"):
-        st.session_state["gantt_fullscreen"] = False
-        st.experimental_rerun()
+    # Bouton retour AVANT le st.stop()
+if st.button("🔙 Retour à la vue principale", key="btn_back_gantt"):
+    st.session_state["gantt_fullscreen"] = False
+    st.rerun()   # nouvelle méthode
 
-    # On arrête ici pour ne pas dessiner le reste de l'app
-    st.stop()
+# Et seulement APRES, on coupe le reste
+st.stop()
     
 
 # ==============================
