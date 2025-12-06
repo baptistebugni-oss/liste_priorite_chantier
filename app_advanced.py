@@ -12,6 +12,8 @@ from reportlab.lib.units import mm
 from reportlab.lib.utils import ImageReader
 import qrcode
 
+import altair as alt
+
 # ==============================
 # CONFIGURATION
 # ==============================
