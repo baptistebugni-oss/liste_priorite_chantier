@@ -257,11 +257,25 @@ def build_pdf(df, opts, qr_url=None):
     ]
 
     for color_hex, label in legend_items:
-        c.setFillColor(colors.HexColor(color_hex))
-        c.rect(40, y - 8, 8, 8, fill=1)
-        c.setFillColor(colors.black)
-        c.drawString(56, y - 2, label)
-        y -= 14
+
+    # Taille du carré
+    square_size = 10
+
+    # Alignement vertical parfait :
+    # Le texte est dessiné à y - 3
+    # Le carré est centré verticalement par rapport au texte
+    square_y = y - (square_size / 2) - 3
+
+    # Dessiner le carré
+    c.setFillColor(colors.HexColor(color_hex))
+    c.rect(40, square_y, square_size, square_size, fill=1, stroke=0)
+
+    # Dessiner le texte correctement aligné
+    c.setFillColor(colors.black)
+    c.drawString(40 + square_size + 8, y - 3, label)
+
+    # Espacement constant
+    y -= 16
 
     y -= 10
 
