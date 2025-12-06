@@ -98,10 +98,10 @@ def get_statut_color(statut):
     """Retourne la couleur associée au statut."""
     statut = str(statut).lower()
     mapping = {
-        "prévu": "#F5EEDC",
-        "en cours": "#D9C8FF",
-        "en attente": "#FFD6E7",
-        "terminé": "#D9F8C4",
+        "prévu": "#F5EEDC",      # beige doux
+        "en cours": "#D9C8FF",   # violet pastel
+        "en attente": "#FFD6E7", # rose léger
+        "terminé": "#D9F8C4",    # vert doux
     }
     return mapping.get(statut, "")
 
@@ -122,38 +122,6 @@ def get_urgence_color(row, opts):
         return "#FFD966"
 
     return ""
-
-
-# ================== STYLE DU TABLEAU STREAMLIT ==================
-
-def make_style_table(df_display, df_filtered, opts):
-    """
-    Applique les couleurs :
-    - Urgence sur Nom / Code / Date
-    - Statut uniquement sur Statut
-    - Autres cellules neutres
-    """
-    df_f = df_filtered.loc[df_display.index]  # réalignement sur les mêmes index
-
-    styles = pd.DataFrame("", index=df_display.index, columns=df_display.columns)
-
-    for idx in df_display.index:
-        r = df_f.loc[idx]
-
-        urg = get_urgence_color(r, opts)
-        stat_col = get_statut_color(r["statut"])
-
-        # Urgence sur colonnes principales
-        if urg:
-            for col in ["Nom de l'affaire", "Code de l'affaire", "Date"]:
-                if col in styles.columns:
-                    styles.loc[idx, col] = f"background-color: {urg}"
-
-        # Couleur statut
-        if stat_col and "Statut" in styles.columns:
-            styles.loc[idx, "Statut"] = f"background-color: {stat_col}"
-
-    return styles
 
 
 # ================== EXPORT EXCEL ==================
@@ -653,11 +621,30 @@ else:
             }
         )
 
-        styles = make_style_table(df_display, df_filtered, opts)
-        styled = df_display.style.apply(lambda _: styles, axis=None)
+        # Style par ligne : urgence sur Nom/Code/Date, statut sur Statut
+        def style_row(row):
+            idx = row.name
+            if idx not in df_filtered.index:
+                return [""] * len(row)
+
+            base_row = df_filtered.loc[idx]
+            urg = get_urgence_color(base_row, opts)
+            stat_color = get_statut_color(base_row["statut"])
+
+            styles = []
+            for col in row.index:
+                if col in ["Nom de l'affaire", "Code de l'affaire", "Date"] and urg:
+                    styles.append(f"background-color: {urg}")
+                elif col == "Statut" and stat_color:
+                    styles.append(f"background-color: {stat_color}")
+                else:
+                    styles.append("")
+            return styles
+
+        styled = df_display.style.apply(style_row, axis=1)
 
         st.caption(f"{len(df_filtered)} chantier(s) affiché(s)")
-        st.dataframe(styled, use_container_width=True)
+        st.dataframe(styled, use_container_width=True, hide_index=True)
 
     # ================== MODIFIER / SUPPRIMER (ADMIN) ==================
     if admin and not df_sorted.empty:
