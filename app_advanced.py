@@ -721,6 +721,115 @@ else:
 
 
 # ==============================
+# VUE GANTT : POSITION DES CHANTIERS DANS LE TEMPS (60 JOURS)
+# ==============================
+
+st.divider()
+st.subheader("📈 Vue temporelle (Gantt) des 60 prochains jours")
+
+if df.empty:
+    st.info("Aucun chantier à afficher dans le graphique.")
+else:
+    df_graph = df.dropna(subset=["date"]).copy()
+
+    if df_graph.empty:
+        st.info("Aucune date valide pour afficher le graphique.")
+    else:
+        import altair as alt
+
+        # --------------- CONFIG TEMPS --------------- #
+
+        today = datetime.today().date()
+        horizon = today + pd.Timedelta(days=60)
+
+        # On garde uniquement le domaine visuel
+        df_graph = df_graph[(df_graph["date"].dt.date >= today) &
+                            (df_graph["date"].dt.date <= horizon)]
+
+        if df_graph.empty:
+            st.warning("Aucun chantier dans les 60 prochains jours.")
+        else:
+            # Préparation du DataFrame
+            df_graph["statut"] = df_graph["statut"].fillna("Prévu")
+            df_graph["date_only"] = df_graph["date"].dt.date
+
+            # Ajout de l’urgence (couleur pastille)
+            df_graph["urgence_color"] = df_graph.apply(lambda r: get_urgence_color(r, opts), axis=1)
+
+            # --------------- BARRE DU GANTT --------------- #
+
+            # Chaque chantier sera dessiné comme un segment bref (un jour)
+            gantt = alt.Chart(df_graph).mark_bar(height=12).encode(
+                x=alt.X("date_only:T",
+                        title="Date",
+                        scale=alt.Scale(domain=[pd.to_datetime(today), pd.to_datetime(horizon)])),
+                y=alt.Y("nom:N",
+                        title="Chantiers",
+                        sort="-x"),
+                color=alt.Color(
+                    "statut:N",
+                    legend=alt.Legend(title="Statut"),
+                    scale=alt.Scale(
+                        domain=["Prévu", "En cours", "En attente", "Terminé"],
+                        range=["#F5EEDC", "#D9C8FF", "#FFD6E7", "#D9F8C4"],
+                    )
+                ),
+                tooltip=[
+                    alt.Tooltip("nom:N", title="Nom de l'affaire"),
+                    alt.Tooltip("ref:N", title="Code de l'affaire"),
+                    alt.Tooltip("date_only:T", title="Date"),
+                    alt.Tooltip("statut:N", title="Statut"),
+                ]
+            )
+
+            # --------------- PASTILLE D’URGENCE --------------- #
+
+            urgence_points = alt.Chart(df_graph).mark_circle(size=200).encode(
+                x="date_only:T",
+                y="nom:N",
+                color=alt.Color("urgence_color:N", scale=None, legend=None),
+            )
+
+            # --------------- LIGNE AUJOURD’HUI --------------- #
+
+            today_df = pd.DataFrame({"today": [pd.to_datetime(today)]})
+
+            today_line = alt.Chart(today_df).mark_rule(
+                color="red",
+                strokeWidth=2
+            ).encode(
+                x="today:T"
+            )
+
+            # --------------- LIGNES DE SEMAINE (CHAQUE LUNDI) --------------- #
+
+            mondays = pd.date_range(start=today, end=horizon, freq="W-MON")
+            df_mondays = pd.DataFrame({"monday": mondays})
+
+            week_lines = alt.Chart(df_mondays).mark_rule(
+                color="#CCCCCC",
+                strokeDash=[4, 4]
+            ).encode(
+                x="monday:T"
+            )
+
+            # --------------- TITRE & MISE EN PAGE --------------- #
+
+            chart = (
+                gantt
+                + urgence_points
+                + today_line
+                + week_lines
+            ).properties(
+                height=450,
+                width="container",
+                title="Position des chantiers sur 60 jours"
+            ).interactive()
+
+            st.altair_chart(chart, use_container_width=True)
+
+
+# ==============================
 # EXPORT
 # ==============================
 
