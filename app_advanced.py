@@ -166,12 +166,14 @@ def importer_excel(file):
     col_debut = "début"
 
     missing = []
-    for col, label in [
-        (col_nom, "Nom de l'affaire"),
-        (col_ref, "Code de l'affaire"),
-        (col_comp, "Compétence"),
-        (col_debut, "Début"),
-    ]:
+    mapping = {
+        col_nom: "Nom de l'affaire",
+        col_ref: "Code de l'affaire",
+        col_comp: "Compétence",
+        col_debut: "Début",
+    }
+
+    for col, label in mapping.items():
         if col not in df_x.columns:
             missing.append(label)
 
@@ -226,7 +228,7 @@ def build_pdf(df, opts, qr_url=None):
     c = canvas.Canvas(buf, pagesize=A4)
     width, height = A4
 
-    # ----------- TITRE ----------- #
+    # En-tête
     c.setFillColor(colors.HexColor("#2F3C7E"))
     c.rect(0, height - 60, width, 60, fill=1)
     c.setFillColor(colors.white)
@@ -235,7 +237,7 @@ def build_pdf(df, opts, qr_url=None):
     c.setFont("Helvetica", 10)
     c.drawString(40, height - 52, f"Export du {datetime.now().strftime('%d/%m/%Y %H:%M')}")
 
-    # ----------- LÉGENDE ----------- #
+    # Légende
     y = height - 95
     c.setFillColor(colors.black)
     c.setFont("Helvetica-Bold", 12)
@@ -256,14 +258,14 @@ def build_pdf(df, opts, qr_url=None):
 
     for color_hex, label in legend_items:
         c.setFillColor(colors.HexColor(color_hex))
-        c.rect(40, y - 8, 8, 8, fill=1, stroke=0)
+        c.rect(40, y - 8, 8, 8, fill=1)
         c.setFillColor(colors.black)
         c.drawString(56, y - 2, label)
         y -= 14
 
     y -= 10
 
-    # ----------- TABLEAU ----------- #
+    # Tableau
     headers = ["Urg.", "Nom", "Code", "Date", "Statut", "État"]
     col_widths = [30, 210, 60, 60, 70, 40]
     row_h = 18
@@ -288,10 +290,10 @@ def build_pdf(df, opts, qr_url=None):
     for _, row in df_sorted.iterrows():
         if y < 80:
             c.showPage()
+            c.setFont("Helvetica", 9)
             width, height = A4
             y = height - 60
             y = draw_header(y)
-            c.setFont("Helvetica", 9)
 
         nom = str(row["nom"])
         code = str(row["ref"])
@@ -304,48 +306,38 @@ def build_pdf(df, opts, qr_url=None):
 
         x = left
 
-        # Urgence carré
         c.setFillColor(colors.HexColor(urg_color))
         c.rect(x + 8, y - row_h + 4, 8, 8, fill=1)
         x += col_widths[0]
 
-        # Nom
         c.setFillColor(colors.black)
         c.drawString(x + 2, y - row_h + 5, nom[:40])
         x += col_widths[1]
 
-        # Code
         c.drawString(x + 2, y - row_h + 5, code[:15])
         x += col_widths[2]
 
-        # Date
         c.drawString(x + 2, y - row_h + 5, date_str)
         x += col_widths[3]
 
-        # Statut texte
         c.drawString(x + 2, y - row_h + 5, statut_txt[:15])
         x += col_widths[4]
 
-        # Statut carré
         c.setFillColor(colors.HexColor(stat_color))
         c.rect(x + 10, y - row_h + 4, 8, 8, fill=1)
 
         y -= row_h
 
-    # ----------- QR CODE ----------- #
     if qr_url:
         qr = qrcode.QRCode(box_size=3, border=1)
         qr.add_data(qr_url)
         qr.make(fit=True)
         img = qr.make_image()
-
         qr_buf = BytesIO()
         img.save(qr_buf, format="PNG")
         qr_buf.seek(0)
-
         c.drawImage(ImageReader(qr_buf), width - 45 * mm, 15 * mm, width=30 * mm)
         c.setFont("Helvetica", 9)
-        c.setFillColor(colors.black)
         c.drawRightString(width - 10 * mm, 12 * mm, "Accès application")
 
     c.save()
@@ -409,7 +401,7 @@ if admin:
         with col2:
             show_qr = st.checkbox("Inclure QR dans le PDF", value=opts["show_qr"])
 
-        if st.button("💾 Sauvegarder options"):
+        if st.button("💾 Sauvegarder options", key="save_opts"):
             opts.update({"rouge": r, "orange": o, "jaune": j, "show_qr": show_qr})
             sauvegarder_options(opts)
             st.success("Options enregistrées ✔")
@@ -422,7 +414,7 @@ st.divider()
 
 if admin:
     with st.expander("📥 Import Excel (Montage)", expanded=False):
-        excel_file = st.file_uploader("Importer un Excel (.xlsx)", type=["xlsx"])
+        excel_file = st.file_uploader("Importer un Excel (.xlsx)", type=["xlsx"], key="excel_uploader")
         if excel_file:
             df_imp = importer_excel(excel_file)
             if not df_imp.empty:
@@ -432,6 +424,7 @@ if admin:
                     "Sélectionner une ligne à ajouter",
                     df_imp.index,
                     format_func=lambda i: f"{df_imp.loc[i, 'nom']} — {df_imp.loc[i, 'ref']}",
+                    key="excel_line_selector"
                 )
                 if st.button("➕ Ajouter ce chantier", key="add_from_excel"):
                     ligne = df_imp.loc[choix]
@@ -458,14 +451,14 @@ if admin:
     with st.expander("✏️ Ajouter manuellement un chantier", expanded=False):
         colA, colB = st.columns(2)
         with colA:
-            nom = st.text_input("Nom de l'affaire")
-            d_montage = st.date_input("Date de montage", value=date.today())
+            nom = st.text_input("Nom de l'affaire", key="add_nom")
+            d_montage = st.date_input("Date de montage", value=date.today(), key="add_date")
         with colB:
-            ref = st.text_input("Code de l'affaire")
-            statut = st.selectbox("Statut", ["Prévu", "En cours", "En attente", "Terminé"])
+            ref = st.text_input("Code de l'affaire", key="add_ref")
+            statut = st.selectbox("Statut", ["Prévu", "En cours", "En attente", "Terminé"], key="statut_manual")
 
-        commentaire = st.text_area("Commentaire")
-        prio = st.selectbox("Priorité manuelle", ["Automatique", "Rouge", "Orange", "Jaune", "Gris"])
+        commentaire = st.text_area("Commentaire", key="add_comment")
+        prio = st.selectbox("Priorité manuelle", ["Automatique", "Rouge", "Orange", "Jaune", "Gris"], key="add_prio")
 
         if st.button("➕ Ajouter ce chantier", key="add_manual"):
             if nom and ref:
@@ -494,10 +487,9 @@ st.subheader("📌 Liste des chantiers")
 if df.empty:
     st.info("Aucun chantier.")
 else:
-    # bouton filtres
     col_btn, _ = st.columns([1, 3])
     with col_btn:
-        if st.button("🔎 Filtres"):
+        if st.button("🔎 Filtres", key="toggle_filters"):
             st.session_state["show_filters"] = not st.session_state["show_filters"]
 
     d1 = d2 = None
@@ -509,13 +501,12 @@ else:
     else:
         col_filters, col_tab = st.columns([0.0001, 1])
 
-    # Filtres
     with col_filters:
         if st.session_state["show_filters"]:
             search = st.text_input("Recherche (nom, code, commentaire)", key="search_global")
 
             stat_uniques = sorted(df["statut"].dropna().unique().tolist())
-            selected_stats = st.multiselect("Filtre statuts", stat_uniques, default=stat_uniques)
+            selected_stats = st.multiselect("Filtre statuts", stat_uniques, default=stat_uniques, key="filter_status")
 
             dates_valides = df["date"].dropna()
             if not dates_valides.empty:
@@ -524,11 +515,10 @@ else:
                 d1 = st.date_input("Date min", value=dmin, key="filter_d1")
                 d2 = st.date_input("Date max", value=dmax, key="filter_d2")
 
-            if st.button("Réinitialiser les filtres"):
+            if st.button("Réinitialiser les filtres", key="reset_filters"):
                 st.session_state["search_global"] = ""
                 st.rerun()
 
-    # Tableau
     with col_tab:
         df2 = df.copy().sort_values("date")
 
@@ -551,13 +541,11 @@ else:
 
         df_disp = df2.copy()
 
-        # colonnes date formatées
         if not df_disp.empty and pd.api.types.is_datetime64_any_dtype(df_disp["date"]):
             df_disp["Date"] = df_disp["date"].dt.strftime("%d/%m/%Y")
         else:
             df_disp["Date"] = "-"
 
-        # pastilles
         df_disp["Urgence"] = df2.apply(lambda r: urgence_emoji(r, opts), axis=1)
         df_disp["État"] = df2["statut"].apply(statut_emoji)
 
@@ -568,7 +556,6 @@ else:
             "statut": "Statut",
         }, inplace=True)
 
-        # colonnes dans l'ordre
         cols_order = ["Urgence", "Nom de l'affaire", "Code de l'affaire", "Date", "Statut", "État", "Commentaire"]
         for c in cols_order:
             if c not in df_disp.columns:
@@ -584,16 +571,17 @@ else:
             column_config={
                 "Urgence": st.column_config.TextColumn(
                     "Urgence",
-                    help="🔴 très urgent · 🟠 moyen · 🟡 approche · ⚪ pas urgent",
+                    help="🔴 urgent · 🟠 moyen · 🟡 approche · ⚪ neutre",
                     width="small",
                 ),
                 "État": st.column_config.TextColumn(
                     "État",
-                    help="⚪ prévu · 🟣 en cours · 🔵 en attente · 🟢 terminé",
+                    help="🟣 en cours · 🔵 en attente · 🟢 terminé · ⚪ prévu",
                     width="small",
                 ),
             }
         )
+
 
 # ==============================
 # MODIFIER / SUPPRIMER
@@ -602,37 +590,41 @@ else:
 if admin and not df.empty:
     st.divider()
     with st.expander("🛠 Modifier ou supprimer un chantier", expanded=False):
+
         idx = st.selectbox(
             "Sélectionner un chantier",
             df.index,
             format_func=lambda i: f"{df.loc[i, 'nom']} — {df.loc[i, 'ref']}",
+            key="edit_selector"
         )
 
         col1, col2 = st.columns(2)
         with col1:
-            new_nom = st.text_input("Nom de l'affaire", df.loc[idx, "nom"])
+            new_nom = st.text_input("Nom de l'affaire", df.loc[idx, "nom"], key=f"edit_nom_{idx}")
             dval = df.loc[idx, "date"]
             new_date = st.date_input(
                 "Date de montage",
-                value=dval.date() if not pd.isna(dval) else date.today()
+                value=dval.date() if not pd.isna(dval) else date.today(),
+                key=f"edit_date_{idx}"
             )
         with col2:
-            new_ref = st.text_input("Code de l'affaire", df.loc[idx, "ref"])
+            new_ref = st.text_input("Code de l'affaire", df.loc[idx, "ref"], key=f"edit_ref_{idx}")
             new_statut = st.selectbox(
                 "Statut",
                 ["Prévu", "En cours", "En attente", "Terminé"],
-                index=["Prévu", "En cours", "En attente", "Terminé"].index(df.loc[idx, "statut"])
+                index=["Prévu", "En cours", "En attente", "Terminé"].index(df.loc[idx, "statut"]),
+                key=f"edit_statut_{idx}"
             )
 
-        new_com = st.text_area("Commentaire", df.loc[idx, "commentaire"])
+        new_com = st.text_area("Commentaire", df.loc[idx, "commentaire"], key=f"edit_com_{idx}")
         prio_list = ["Automatique", "Rouge", "Orange", "Jaune", "Gris"]
         cur_prio = df.loc[idx, "priorite"]
         prio_display = "Automatique" if cur_prio == "auto" else cur_prio.capitalize()
-        new_prio = st.selectbox("Priorité manuelle", prio_list, index=prio_list.index(prio_display))
+        new_prio = st.selectbox("Priorité manuelle", prio_list, index=prio_list.index(prio_display), key=f"edit_prio_{idx}")
 
         colA, colB = st.columns(2)
         with colA:
-            if st.button("💾 Enregistrer les modifications", key="edit_save"):
+            if st.button("💾 Enregistrer les modifications", key=f"edit_save_{idx}"):
                 df.loc[idx, "nom"] = new_nom
                 df.loc[idx, "ref"] = new_ref
                 df.loc[idx, "date"] = str(new_date)
@@ -644,14 +636,15 @@ if admin and not df.empty:
                 st.rerun()
 
         with colB:
-            if st.button("🗑 Supprimer ce chantier", key="edit_delete"):
+            if st.button("🗑 Supprimer ce chantier", key=f"delete_{idx}"):
                 df = df.drop(idx).reset_index(drop=True)
                 sauvegarder_chantiers(df)
                 st.success("Chantier supprimé ✔")
                 st.rerun()
 
+
 # ==============================
-# EXPORTS PDF / EXCEL
+# EXPORT PDF / EXCEL
 # ==============================
 
 st.divider()
@@ -660,25 +653,28 @@ st.subheader("📤 Exports")
 colP, colE = st.columns(2)
 with colP:
     if df.empty:
-        st.button("📄 Export PDF", disabled=True)
+        st.button("📄 Export PDF", disabled=True, key="pdf_disabled")
     else:
         qr_for_pdf = st.session_state.get("qr_url") if opts["show_qr"] else None
         st.download_button(
             "📄 Export PDF",
             build_pdf(df, opts, qr_url=qr_for_pdf),
             file_name=f"Gestion_Projet_Priorites_{datetime.now().strftime('%Y-%m-%d')}.pdf",
-            mime="application/pdf"
+            mime="application/pdf",
+            key="export_pdf"
         )
 
 with colE:
     if df.empty:
-        st.button("📊 Export Excel", disabled=True)
+        st.button("📊 Export Excel", disabled=True, key="excel_disabled")
     else:
         st.download_button(
             "📊 Export Excel",
             build_excel(df),
-            file_name="chantiers.xlsx"
+            file_name="chantiers.xlsx",
+            key="export_excel"
         )
+
 
 # ==============================
 # QR CODE AFFICHAGE
@@ -690,7 +686,8 @@ if opts["show_qr"]:
 
     qr_url = st.text_input(
         "URL de l'application (pour le QR code)",
-        value=st.session_state.get("qr_url", "")
+        value=st.session_state.get("qr_url", ""),
+        key="qr_url_input"
     )
     st.session_state["qr_url"] = qr_url
 
