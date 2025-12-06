@@ -658,6 +658,67 @@ if admin:
 
 
 # ==============================
+# VUE GRAPHIQUE DES CHANTIERS
+# ==============================
+
+st.divider()
+st.subheader("📈 Vue temporelle des chantiers")
+
+if df.empty:
+    st.info("Aucun chantier à afficher dans le graphique.")
+else:
+    # On prend TOUS les chantiers (même si filtrés ailleurs)
+    df_graph = df.dropna(subset=["date"]).copy()
+
+    if df_graph.empty:
+        st.info("Aucune date valide pour afficher le graphique.")
+    else:
+        # On force un ordre propre des statuts
+        df_graph["statut"] = df_graph["statut"].fillna("Prévu")
+
+        # DataFrame pour la ligne "aujourd'hui"
+        today = datetime.today().date()
+        df_today = pd.DataFrame({"date": [pd.to_datetime(today)]})
+
+        # Graphique principal : un point par chantier
+        base = alt.Chart(df_graph).encode(
+            x=alt.X("date:T", title="Date de montage"),
+            y=alt.Y("nom:N", title="Chantier", sort="-x"),
+            color=alt.Color(
+                "statut:N",
+                title="Statut",
+                scale=alt.Scale(
+                    domain=["Prévu", "En cours", "En attente", "Terminé"],
+                    range=["#F5EEDC", "#D9C8FF", "#FFD6E7", "#D9F8C4"],
+                ),
+            ),
+            tooltip=[
+                alt.Tooltip("nom:N", title="Nom de l'affaire"),
+                alt.Tooltip("ref:N", title="Code de l'affaire"),
+                alt.Tooltip("date:T", title="Date"),
+                alt.Tooltip("statut:N", title="Statut"),
+                alt.Tooltip("commentaire:N", title="Commentaire"),
+            ],
+        )
+
+        points = base.mark_circle(size=120)
+
+        # Ligne verticale pour "aujourd'hui"
+        today_line = (
+            alt.Chart(df_today)
+            .mark_rule(color="red", strokeDash=[4, 4])
+            .encode(x="date:T")
+        )
+
+        chart = (points + today_line).properties(
+            height=400,
+            title="Position des chantiers dans le temps"
+        ).interactive()
+
+        st.altair_chart(chart, use_container_width=True)
+
+
+# ==============================
 # EXPORT
 # ==============================
 
