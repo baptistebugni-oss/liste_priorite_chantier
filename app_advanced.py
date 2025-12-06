@@ -156,109 +156,143 @@ def build_excel(df):
 # ================== EXPORT PDF PREMIUM ==================
 
 def build_pdf(df, opts, qr_url=None):
-    """Construit un PDF premium avec pastilles et légende."""
+    """Construit un PDF propre avec couleurs et légende."""
     buf = BytesIO()
     c = canvas.Canvas(buf, pagesize=A4)
     width, height = A4
 
-    # ----- Bandeau titre -----
+    # ---------- Bandeau titre ----------
     c.setFillColor(colors.HexColor("#2F3C7E"))
-    c.rect(0, height - 70, width, 70, fill=1, stroke=0)
+    c.rect(0, height - 60, width, 60, fill=1, stroke=0)
 
     c.setFillColor(colors.white)
     c.setFont("Helvetica-Bold", 22)
-    c.drawCentredString(width / 2, height - 40, "Gestion Projet Priorités")
+    c.drawCentredString(width / 2, height - 35, "Gestion Projet Priorités")
 
     c.setFont("Helvetica", 10)
-    c.drawString(40, height - 58, f"Export du {datetime.now().strftime('%d/%m/%Y %H:%M')}")
+    c.drawString(40, height - 52, f"Export du {datetime.now().strftime('%d/%m/%Y %H:%M')}")
 
-    # ----- Légende -----
-    y = height - 110
-    c.setFont("Helvetica-Bold", 12)
+    # ---------- Légende ----------
+    left_margin = 40
+    y = height - 90
     c.setFillColor(colors.black)
-    c.drawString(40, y, "Légende :")
+    c.setFont("Helvetica-Bold", 12)
+    c.drawString(left_margin, y, "Légende :")
+
+    y -= 18
+    c.setFont("Helvetica", 10)
 
     legend_items = [
-        ("🔴", "Urgence forte"),
-        ("🟠", "Urgence moyenne"),
-        ("🟡", "Approche"),
-        ("⚪", "Pas urgent / Prévu"),
-        ("🟣", "En cours"),
-        ("🔵", "En attente"),
-        ("🟢", "Terminé"),
+        ("#FF4B4B", f"Urgence forte (≤ {opts['rouge']} jours)"),
+        ("#FFA500", f"Urgence moyenne (≤ {opts['orange']} jours)"),
+        ("#FFD966", f"Approche (≤ {opts['jaune']} jours)"),
+        ("#DDDDDD", "Pas urgent"),
+        ("#F5EEDC", "Statut : Prévu"),
+        ("#D9C8FF", "Statut : En cours"),
+        ("#FFD6E7", "Statut : En attente"),
+        ("#D9F8C4", "Statut : Terminé"),
     ]
 
-    y -= 25
-    for emoji, label in legend_items:
-        c.drawString(40, y, f"{emoji}  {label}")
-        y -= 16
+    for color_hex, label in legend_items:
+        # petit carré
+        c.setFillColor(colors.HexColor(color_hex))
+        c.rect(left_margin, y - 8, 8, 8, fill=1, stroke=0)
+        # texte
+        c.setFillColor(colors.black)
+        c.drawString(left_margin + 14, y - 2, label)
+        y -= 14
 
-    # ----- Tableau PDF -----
-    y -= 10
-    headers = ["Urg", "Nom", "Code", "Date", "Statut", "État"]
-    col_widths = [25, 210, 60, 60, 60, 30]
-    left = 40
+    y -= 10  # petit espace avant le tableau
 
-    # En-têtes
-    c.setFillColor(colors.HexColor("#EFEFEF"))
-    c.rect(left, y - 18, sum(col_widths), 18, fill=1)
+    # ---------- Tableau : colonnes ----------
+    headers = ["Urgence", "Nom de l'affaire", "Code", "Date", "Statut", "État"]
+    col_widths = [30, 210, 60, 60, 70, 40]
+    table_left = left_margin
+    row_height = 18
 
-    c.setFillColor(colors.black)
-    c.setFont("Helvetica-Bold", 10)
+    def draw_table_header(y_pos):
+        c.setFillColor(colors.HexColor("#EFEFEF"))
+        c.rect(table_left, y_pos - row_height, sum(col_widths), row_height, fill=1, stroke=0)
+        c.setFillColor(colors.black)
+        c.setFont("Helvetica-Bold", 10)
+        x = table_left + 4
+        for i, h in enumerate(headers):
+            c.drawString(x, y_pos - row_height + 5, h)
+            x += col_widths[i]
+        return y_pos - row_height - 4  # nouvelle position y (avec marge)
 
-    x = left + 4
-    for i, h in enumerate(headers):
-        c.drawString(x, y - 13, h)
-        x += col_widths[i]
+    # Dessiner l'entête une première fois
+    y = draw_table_header(y)
 
+    # ---------- Lignes du tableau ----------
     c.setFont("Helvetica", 9)
-    y -= 24
-
     df_sorted = df.sort_values("date")
 
     for _, row in df_sorted.iterrows():
-
+        # saut de page si on arrive en bas
         if y < 80:
             c.showPage()
             width, height = A4
-            y = height - 80
+            y = height - 60
+            # redessiner l'entête sur la nouvelle page
+            y = draw_table_header(y)
+            c.setFont("Helvetica", 9)
 
-        urg = urgence_emoji(row, opts)
-        stat = statut_emoji(row["statut"])
+        # Données de la ligne
+        nom = str(row["nom"]) if not pd.isna(row["nom"]) else ""
+        code = str(row["ref"]) if not pd.isna(row["ref"]) else ""
+        d_val = row.get("date", None)
+        if isinstance(d_val, str):
+            try:
+                d_val = pd.to_datetime(d_val, errors="coerce")
+            except Exception:
+                d_val = None
+        if pd.isna(d_val):
+            date_str = "-"
+        else:
+            date_str = d_val.strftime("%d/%m/%Y")
 
-        nom = str(row["nom"])[:40]
-        code = str(row["ref"])[:15]
-        d = "-" if pd.isna(row["date"]) else row["date"].strftime("%d/%m/%Y")
-        statut_txt = str(row["statut"])[:15]
+        statut_txt = str(row["statut"]) if not pd.isna(row["statut"]) else ""
 
-        x = left + 4
+        # Couleur d'urgence (rectangle)
+        urg_color = get_urgence_color(row, opts) or "#DDDDDD"
 
-        # Urgence
-        c.drawString(x, y, urg)
+        # Couleur de statut (rectangle)
+        statut_color = get_statut_color(statut_txt) or "#DDDDDD"
+
+        # Dessin ligne
+        x = table_left
+
+        # 1) Colonne Urgence : petit carré coloré
+        c.setFillColor(colors.HexColor(urg_color))
+        c.rect(x + 8, y - row_height + 4, 8, 8, fill=1, stroke=0)  # carré au centre de la cellule
         x += col_widths[0]
 
-        # Nom
-        c.drawString(x, y, nom)
+        # 2) Nom
+        c.setFillColor(colors.black)
+        c.drawString(x + 2, y - row_height + 5, nom[:40])
         x += col_widths[1]
 
-        # Code
-        c.drawString(x, y, code)
+        # 3) Code
+        c.drawString(x + 2, y - row_height + 5, code[:15])
         x += col_widths[2]
 
-        # Date
-        c.drawString(x, y, d)
+        # 4) Date
+        c.drawString(x + 2, y - row_height + 5, date_str)
         x += col_widths[3]
 
-        # Statut
-        c.drawString(x, y, statut_txt)
+        # 5) Statut (texte)
+        c.drawString(x + 2, y - row_height + 5, statut_txt[:15])
         x += col_widths[4]
 
-        # Pastille statut
-        c.drawString(x, y, stat)
+        # 6) Colonne État : petit carré couleur statut
+        c.setFillColor(colors.HexColor(statut_color))
+        c.rect(x + 10, y - row_height + 4, 8, 8, fill=1, stroke=0)
 
-        y -= 18
+        # passer à la ligne suivante
+        y -= row_height
 
-    # ----- QR CODE -----
+    # ---------- QR CODE en bas de page ----------
     if qr_url:
         qr = qrcode.QRCode(box_size=3, border=1)
         qr.add_data(qr_url)
@@ -269,8 +303,9 @@ def build_pdf(df, opts, qr_url=None):
         img.save(qr_buf, format="PNG")
         qr_buf.seek(0)
 
-        c.drawImage(ImageReader(qr_buf), width - 45 * mm, 15 * mm, width=30 * mm)
+        c.drawImage(ImageReader(qr_buf), width - 45 * mm, 15 * mm, width=30 * mm, preserveAspectRatio=True)
         c.setFont("Helvetica", 9)
+        c.setFillColor(colors.black)
         c.drawRightString(width - 10 * mm, 12 * mm, "Accès application")
 
     c.save()
