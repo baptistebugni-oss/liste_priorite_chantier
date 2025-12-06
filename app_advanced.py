@@ -5,13 +5,14 @@ import os
 from datetime import datetime, date
 from io import BytesIO
 
+import matplotlib.pyplot as plt
+
 from reportlab.lib.pagesizes import A4
 from reportlab.pdfgen import canvas
 from reportlab.lib import colors
-import qrcode
-from reportlab.lib.utils import ImageReader
 from reportlab.lib.units import mm
-import plotly.express as px
+from reportlab.lib.utils import ImageReader
+import qrcode
 
 
 # ==============================
@@ -23,17 +24,19 @@ OPTIONS_FILE = "options.json"
 ADMIN_PASSWORD = "admin123"
 
 DEFAULT_OPTIONS = {
-    "rouge": 2,
-    "orange": 7,
-    "jaune": 14,
-    "show_qr": True,
+    "rouge": 2,       # seuil en jours pour urgence rouge
+    "orange": 7,      # seuil en jours pour urgence orange
+    "jaune": 14,      # seuil en jours pour urgence jaune
+    "show_qr": True,  # afficher un QR-code dans le PDF
+    "horizon": 60,    # horizon de calendrier en jours
+    "qr_url": "",     # URL utilisée pour le QR-code
 }
 
 COLUMNS = ["nom", "ref", "date", "commentaire", "statut", "priorite"]
 
 
 # ==============================
-# CHARGEMENT / SAUVEGARDE
+# OUTILS DONNÉES
 # ==============================
 
 def ensure_columns(df, cols):
@@ -50,7 +53,7 @@ def charger_chantiers():
     try:
         with open(DATA_FILE, "r", encoding="utf-8") as f:
             data = json.load(f)
-    except:
+    except Exception:
         data = []
 
     df = pd.DataFrame(data)
@@ -79,7 +82,7 @@ def charger_options():
     try:
         with open(OPTIONS_FILE, "r", encoding="utf-8") as f:
             opts = json.load(f)
-    except:
+    except Exception:
         opts = {}
 
     for k, v in DEFAULT_OPTIONS.items():
@@ -90,11 +93,11 @@ def charger_options():
 
 def sauvegarder_options(opts):
     with open(OPTIONS_FILE, "w", encoding="utf-8") as f:
-        json.dump(opts, f, indent=4)
+        json.dump(opts, f, ensure_ascii=False, indent=4)
 
 
 # ==============================
-# COULEURS & PASTILLES
+# COULEURS / ÉMOTICÔNES
 # ==============================
 
 def get_urgence_color(row, opts):
@@ -136,7 +139,7 @@ def statut_emoji(statut):
 
 
 # ==============================
-# IMPORT EXCEL — OPTION A (Sélection unitaire)
+# IMPORT EXCEL (Montage uniquement, sélection unitaire)
 # ==============================
 
 def importer_excel(file):
@@ -170,7 +173,8 @@ def importer_excel(file):
 def build_excel(df):
     buf = BytesIO()
     df2 = df.copy()
-    df2["date"] = df2["date"].dt.strftime("%d/%m/%Y")
+    if not df2.empty:
+        df2["date"] = df2["date"].dt.strftime("%d/%m/%Y")
     df2.to_excel(buf, index=False)
     buf.seek(0)
     return buf
@@ -185,12 +189,16 @@ def build_pdf(df, opts, qr_url=None):
     c = canvas.Canvas(buf, pagesize=A4)
     w, h = A4
 
+    # En-tête
     c.setFillColor(colors.HexColor("#2F3C7E"))
     c.rect(0, h - 60, w, 60, fill=1)
     c.setFont("Helvetica-Bold", 24)
     c.setFillColor(colors.white)
-    c.drawCentredString(w/2, h - 35, "Gestion Projet Priorités")
+    c.drawCentredString(w / 2, h - 35, "Gestion Projet Priorités")
+    c.setFont("Helvetica", 10)
+    c.drawString(40, h - 52, f"Export du {datetime.now().strftime('%d/%m/%Y %H:%M')}")
 
+    # Légende
     y = h - 90
     c.setFillColor(colors.black)
     c.setFont("Helvetica-Bold", 12)
@@ -235,7 +243,6 @@ def build_pdf(df, opts, qr_url=None):
     c.setFont("Helvetica", 9)
 
     for _, r in df.sort_values("date").iterrows():
-
         if y < 80:
             c.showPage()
             w, h = A4
@@ -251,7 +258,7 @@ def build_pdf(df, opts, qr_url=None):
             r["ref"],
             d,
             r["statut"],
-            statut_emoji(r["statut"])
+            statut_emoji(r["statut"]),
         ]
 
         x = 44
@@ -261,20 +268,23 @@ def build_pdf(df, opts, qr_url=None):
 
         y -= 18
 
+    # QR-code éventuel
     if qr_url:
         qr = qrcode.QRCode(box_size=3, border=1)
         qr.add_data(qr_url)
         qr.make()
-        qr_img = qr.make_image()
+        img = qr.make_image()
         buf_qr = BytesIO()
-        qr_img.save(buf_qr, format="PNG")
+        img.save(buf_qr, format="PNG")
         buf_qr.seek(0)
-        c.drawImage(ImageReader(buf_qr), w - 45*mm, 20*mm, width=30*mm)
+        c.drawImage(ImageReader(buf_qr), w - 45 * mm, 20 * mm, width=30 * mm)
+        c.setFont("Helvetica", 9)
+        c.setFillColor(colors.black)
+        c.drawRightString(w - 10 * mm, 15 * mm, "Accès application")
 
     c.save()
     buf.seek(0)
     return buf
-
 
 
 # =======================================================
@@ -294,55 +304,8 @@ if mode == "Administrateur":
     else:
         st.sidebar.error("Mot de passe incorrect")
 
-
 df = charger_chantiers()
 opts = charger_options()
-
-
-# =============================
-# GANTT FULLSCREEN
-# =============================
-
-if "gantt_fullscreen" in st.session_state and st.session_state["gantt_fullscreen"]:
-
-    st.button("⬅️ Retour", on_click=lambda: st.session_state.pop("gantt_fullscreen"), key="gback")
-    st.subheader("📊 Vue Gantt — Plein écran")
-
-    if df.empty:
-        st.info("Aucun chantier")
-        st.stop()
-
-    df_g = df[df["date"].notna()].copy()
-
-    df_g["Start"] = df_g["date"]
-    df_g["Finish"] = df_g["date"] + pd.Timedelta(days=1)
-
-    df_g["label"] = (
-        df_g["nom"].fillna("").astype(str)
-        + " ("
-        + df_g["ref"].fillna("").astype(str)
-        + ")"
-    )
-
-    fig = px.timeline(
-        df_g,
-        x_start="Start",
-        x_end="Finish",
-        y="label",
-        color="statut",
-        color_discrete_map={
-            "Prévu": "#F5EEDC",
-            "En cours": "#D9C8FF",
-            "En attente": "#FFD6E7",
-            "Terminé": "#D9F8C4",
-        }
-    )
-
-    fig.update_yaxes(autorange="reversed")
-    fig.update_layout(height=900)
-
-    st.plotly_chart(fig, use_container_width=True)
-    st.stop()
 
 
 # =============================
@@ -354,8 +317,10 @@ with st.expander("🔎 Filtres de recherche"):
 
     f_nom = col1.text_input("Rechercher un nom")
     f_ref = col2.text_input("Rechercher un code")
-    f_statut = col3.multiselect("Filtrer par statut",
-                                ["Prévu", "En cours", "En attente", "Terminé"])
+    f_statut = col3.multiselect(
+        "Filtrer par statut",
+        ["Prévu", "En cours", "En attente", "Terminé"],
+    )
 
 df_filtered = df.copy()
 
@@ -365,15 +330,6 @@ if f_ref:
     df_filtered = df_filtered[df_filtered["ref"].str.contains(f_ref, case=False, na=False)]
 if f_statut:
     df_filtered = df_filtered[df_filtered["statut"].isin(f_statut)]
-
-
-# =============================
-# BOUTON GANTT
-# =============================
-
-if st.button("📊 Afficher Gantt (plein écran)", key="ganttshow"):
-    st.session_state["gantt_fullscreen"] = True
-    st.rerun()
 
 
 # =============================
@@ -388,7 +344,9 @@ else:
     disp = df_filtered.copy()
     disp["Urgence"] = disp.apply(lambda r: urgence_emoji(r, opts), axis=1)
     disp["État"] = disp["statut"].apply(statut_emoji)
-    disp["date"] = disp["date"].dt.strftime("%d/%m/%Y")
+
+    if not disp.empty:
+        disp["date"] = disp["date"].dt.strftime("%d/%m/%Y")
 
     disp = disp[["Urgence", "nom", "ref", "date", "statut", "État", "commentaire"]]
 
@@ -396,10 +354,98 @@ else:
         "nom": "Nom de l'affaire",
         "ref": "Code affaire",
         "statut": "Statut",
-        "commentaire": "Commentaire"
+        "commentaire": "Commentaire",
     }, inplace=True)
 
     st.dataframe(disp, use_container_width=True)
+
+
+# =============================
+# CALENDRIER SIMPLE (texte par jour)
+# =============================
+
+st.subheader("📆 Calendrier des chantiers")
+
+if df_filtered.empty:
+    st.info("Aucun chantier à afficher dans le calendrier.")
+else:
+    df_cal = df_filtered.copy()
+    df_cal = df_cal[df_cal["date"].notna()]
+
+    if df_cal.empty:
+        st.info("Aucune date valide pour le calendrier.")
+    else:
+        horizon = opts.get("horizon", 60)
+        today = date.today()
+        end_date = today + pd.Timedelta(days=horizon)
+
+        df_cal = df_cal[
+            (df_cal["date"].dt.date >= today) &
+            (df_cal["date"].dt.date <= end_date)
+        ]
+
+        if df_cal.empty:
+            st.warning("Aucun chantier dans l'horizon de calendrier défini.")
+        else:
+            df_cal["jour"] = df_cal["date"].dt.day
+            df_cal["mois"] = df_cal["date"].dt.to_period("M").astype(str)
+
+            mois_uniques = sorted(df_cal["mois"].unique())
+            mois_index = {m: i for i, m in enumerate(mois_uniques)}
+
+            statut_colors = {
+                "Prévu": "#B39B6B",
+                "En cours": "#7F3FBF",
+                "En attente": "#E75480",
+                "Terminé": "#2E8B57",
+            }
+
+            fig, ax = plt.subplots(figsize=(10, 12))
+
+            offsets = {}  # (x, jour) -> nombre de lignes déjà utilisées
+
+            for _, row in df_cal.iterrows():
+                m = row["mois"]
+                j = int(row["jour"])
+                nom = str(row["nom"])
+
+                x = mois_index[m]
+                y = j
+
+                key = (x, y)
+                n_offset = offsets.get(key, 0)
+                offsets[key] = n_offset + 1
+
+                y_text = y + (n_offset * 0.25)
+
+                color = statut_colors.get(row["statut"], "black")
+
+                ax.text(
+                    x,
+                    y_text,
+                    nom,
+                    ha="center",
+                    va="center",
+                    fontsize=8,
+                    color=color,
+                )
+
+            ax.set_xticks(range(len(mois_uniques)))
+            ax.set_xticklabels(mois_uniques, rotation=45, ha="right")
+
+            ax.set_yticks(range(1, 32))
+            ax.set_yticklabels(range(1, 32))
+            ax.set_ylabel("Jour du mois")
+            ax.set_xlabel("Mois")
+
+            ax.set_ylim(0.5, 31.5)
+            ax.invert_yaxis()
+
+            ax.grid(True, which="both", linestyle="--", linewidth=0.3, alpha=0.5)
+            ax.set_title(f"Chantiers sur {horizon} jours à partir d'aujourd'hui")
+
+            plt.tight_layout()
+            st.pyplot(fig, use_container_width=True)
 
 
 # =======================================================
@@ -409,10 +455,9 @@ else:
 if is_admin:
 
     # ------------------------
-    # IMPORT EXCEL OPTION A
+    # IMPORT EXCEL
     # ------------------------
     with st.expander("📥 Import Excel — Sélection unitaire"):
-
         file = st.file_uploader("Importer un fichier Excel", type=["xlsx"], key="excel_file")
 
         if file:
@@ -427,17 +472,17 @@ if is_admin:
                     "Sélectionner un chantier",
                     range(len(imported)),
                     format_func=lambda i: names[i],
-                    key="excel_select"
+                    key="excel_select",
                 )
 
-                # FIX : utiliser iloc et non loc
                 row = imported.iloc[idx_choice]
 
-                st.info(f"""
-                **Nom :** {row['nom']}  
-                **Code :** {row['ref']}  
-                **Date :** {row['date'].strftime('%d/%m/%Y') if not pd.isna(row['date']) else '-'}
-                """)
+                st.info(
+                    f"**Nom :** {row['nom']}\n\n"
+                    f"**Code :** {row['ref']}\n\n"
+                    f"**Date :** "
+                    f"{row['date'].strftime('%d/%m/%Y') if not pd.isna(row['date']) else '-'}"
+                )
 
                 if st.button("➕ Ajouter ce chantier", key="excel_add"):
                     df.loc[len(df)] = [
@@ -446,7 +491,7 @@ if is_admin:
                         row["date"],
                         "",
                         "Prévu",
-                        ""
+                        "",
                     ]
                     sauvegarder_chantiers(df)
                     st.success("Chantier ajouté !")
@@ -460,14 +505,21 @@ if is_admin:
         n_nom = st.text_input("Nom", key="m_nom")
         n_ref = st.text_input("Code", key="m_ref")
         n_date = st.date_input("Date", key="m_date")
-        n_statut = st.selectbox("Statut",
-                                ["Prévu", "En cours", "En attente", "Terminé"],
-                                key="m_statut")
+        n_statut = st.selectbox(
+            "Statut",
+            ["Prévu", "En cours", "En attente", "Terminé"],
+            key="m_statut",
+        )
         n_comment = st.text_area("Commentaire", key="m_comm")
 
         if st.button("Ajouter chantier", key="m_add"):
             df.loc[len(df)] = [
-                n_nom, n_ref, pd.to_datetime(n_date), n_comment, n_statut, ""
+                n_nom,
+                n_ref,
+                pd.to_datetime(n_date),
+                n_comment,
+                n_statut,
+                "",
             ]
             sauvegarder_chantiers(df)
             st.success("Chantier ajouté")
@@ -477,44 +529,43 @@ if is_admin:
     # MODIFIER / SUPPRIMER
     # ------------------------
     with st.expander("✏️ Modifier / Supprimer un chantier"):
-
         if df.empty:
             st.info("Aucun chantier.")
         else:
             idx = st.selectbox(
                 "Sélectionner",
                 df.index,
-                format_func=lambda i: f"{df.loc[i,'nom']} - {df.loc[i,'ref']}",
-                key="edit_select"
+                format_func=lambda i: f"{df.loc[i, 'nom']} - {df.loc[i, 'ref']}",
+                key="edit_select",
             )
 
             row = df.loc[idx]
 
             e_nom = st.text_input("Nom", row["nom"], key=f"e_nom_{idx}")
             e_ref = st.text_input("Code", row["ref"], key=f"e_ref_{idx}")
-
             e_date = st.date_input(
                 "Date",
                 row["date"].date() if not pd.isna(row["date"]) else date.today(),
-                key=f"e_date_{idx}"
+                key=f"e_date_{idx}",
             )
-
             e_statut = st.selectbox(
                 "Statut",
                 ["Prévu", "En cours", "En attente", "Terminé"],
                 index=["Prévu", "En cours", "En attente", "Terminé"].index(row["statut"]),
-                key=f"e_statut_{idx}"
+                key=f"e_statut_{idx}",
             )
-
-            e_comment = st.text_area("Commentaire",
-                                     row["commentaire"],
-                                     key=f"e_comment_{idx}")
+            e_comment = st.text_area("Commentaire", row["commentaire"], key=f"e_comment_{idx}")
 
             c1, c2 = st.columns(2)
 
             if c1.button("💾 Sauvegarder", key=f"save_{idx}"):
                 df.loc[idx] = [
-                    e_nom, e_ref, pd.to_datetime(e_date), e_comment, e_statut, ""
+                    e_nom,
+                    e_ref,
+                    pd.to_datetime(e_date),
+                    e_comment,
+                    e_statut,
+                    "",
                 ]
                 sauvegarder_chantiers(df)
                 st.success("Modifié !")
@@ -534,13 +585,25 @@ if is_admin:
         o1 = st.number_input("Urgence rouge ≤ jours", value=opts["rouge"], min_value=0)
         o2 = st.number_input("Urgence orange ≤ jours", value=opts["orange"], min_value=0)
         o3 = st.number_input("Urgence jaune ≤ jours", value=opts["jaune"], min_value=0)
-        o4 = st.checkbox("Afficher QR dans PDF", value=opts["show_qr"])
+        o4 = st.checkbox("Afficher QR dans le PDF", value=opts["show_qr"])
+        o5 = st.number_input(
+            "Horizon calendrier (en jours)",
+            value=opts.get("horizon", 60),
+            min_value=7,
+            max_value=365,
+        )
+        o6 = st.text_input(
+            "URL à encoder dans le QR-code (pour le PDF)",
+            value=opts.get("qr_url", ""),
+        )
 
         if st.button("Sauvegarder options", key="opt_save"):
             opts["rouge"] = o1
             opts["orange"] = o2
             opts["jaune"] = o3
             opts["show_qr"] = o4
+            opts["horizon"] = o5
+            opts["qr_url"] = o6
             sauvegarder_options(opts)
             st.success("Options enregistrées !")
             st.rerun()
@@ -556,20 +619,21 @@ cA, cB = st.columns(2)
 
 with cA:
     if st.button("📄 Export PDF", key="pdf_btn"):
-        qr_url = None
-        if opts["show_qr"]:
-            qr_url = st.experimental_get_query_params().get("share", [""])[0]
-
+        qr_url = opts["qr_url"] if opts.get("show_qr") and opts.get("qr_url") else None
         pdf = build_pdf(df, opts, qr_url)
-        st.download_button("Télécharger PDF",
-                           data=pdf,
-                           file_name=f"Gestion_Projet_Priorites_{date.today()}.pdf",
-                           mime="application/pdf")
+        st.download_button(
+            "Télécharger PDF",
+            data=pdf,
+            file_name=f"Gestion_Projet_Priorites_{date.today()}.pdf",
+            mime="application/pdf",
+        )
 
 with cB:
     if st.button("📊 Export Excel", key="xlsx_btn"):
         excel = build_excel(df)
-        st.download_button("Télécharger Excel",
-                           data=excel,
-                           file_name=f"Chantiers_{date.today()}.xlsx",
-                           mime="application/vnd.ms-excel")
+        st.download_button(
+            "Télécharger Excel",
+            data=excel,
+            file_name=f"Chantiers_{date.today()}.xlsx",
+            mime="application/vnd.ms-excel",
+        )
