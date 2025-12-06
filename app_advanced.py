@@ -136,7 +136,7 @@ def statut_emoji(statut):
 
 
 # ==============================
-# IMPORT EXCEL — OPTION A (Sélection)
+# IMPORT EXCEL — OPTION A (Sélection unitaire)
 # ==============================
 
 def importer_excel(file):
@@ -276,6 +276,7 @@ def build_pdf(df, opts, qr_url=None):
     return buf
 
 
+
 # =======================================================
 # INTERFACE PRINCIPALE
 # =======================================================
@@ -367,7 +368,7 @@ if f_statut:
 
 
 # =============================
-# GANTT BTN
+# BOUTON GANTT
 # =============================
 
 if st.button("📊 Afficher Gantt (plein écran)", key="ganttshow"):
@@ -376,7 +377,7 @@ if st.button("📊 Afficher Gantt (plein écran)", key="ganttshow"):
 
 
 # =============================
-# TABLEAU
+# TABLEAU PRINCIPAL
 # =============================
 
 st.subheader("📌 Liste des chantiers")
@@ -402,17 +403,17 @@ else:
 
 
 # =======================================================
-# ADMIN
+# ADMINISTRATION
 # =======================================================
 
 if is_admin:
 
     # ------------------------
-    # IMPORT EXCEL (OPTION A)
+    # IMPORT EXCEL OPTION A
     # ------------------------
-    with st.expander("📥 Import Excel — Sélection par chantier"):
+    with st.expander("📥 Import Excel — Sélection unitaire"):
 
-        file = st.file_uploader("Importer un fichier Excel", type=["xlsx"], key="import_excel")
+        file = st.file_uploader("Importer un fichier Excel", type=["xlsx"], key="excel_file")
 
         if file:
             imported = importer_excel(file)
@@ -421,11 +422,16 @@ if is_admin:
                 st.success(f"{len(imported)} chantiers trouvés (Montage)")
 
                 names = imported["nom"].fillna("Sans nom").tolist()
-                idx_choice = st.selectbox("Sélectionner un chantier", range(len(imported)),
-                                          format_func=lambda i: names[i],
-                                          key="excel_select")
 
-                row = imported.loc[idx_choice]
+                idx_choice = st.selectbox(
+                    "Sélectionner un chantier",
+                    range(len(imported)),
+                    format_func=lambda i: names[i],
+                    key="excel_select"
+                )
+
+                # FIX : utiliser iloc et non loc
+                row = imported.iloc[idx_choice]
 
                 st.info(f"""
                 **Nom :** {row['nom']}  
@@ -454,12 +460,15 @@ if is_admin:
         n_nom = st.text_input("Nom", key="m_nom")
         n_ref = st.text_input("Code", key="m_ref")
         n_date = st.date_input("Date", key="m_date")
-        n_statut = st.selectbox("Statut", ["Prévu", "En cours", "En attente", "Terminé"],
+        n_statut = st.selectbox("Statut",
+                                ["Prévu", "En cours", "En attente", "Terminé"],
                                 key="m_statut")
         n_comment = st.text_area("Commentaire", key="m_comm")
 
         if st.button("Ajouter chantier", key="m_add"):
-            df.loc[len(df)] = [n_nom, n_ref, pd.to_datetime(n_date), n_comment, n_statut, ""]
+            df.loc[len(df)] = [
+                n_nom, n_ref, pd.to_datetime(n_date), n_comment, n_statut, ""
+            ]
             sauvegarder_chantiers(df)
             st.success("Chantier ajouté")
             st.rerun()
@@ -473,7 +482,7 @@ if is_admin:
             st.info("Aucun chantier.")
         else:
             idx = st.selectbox(
-                "Sélectionner un chantier",
+                "Sélectionner",
                 df.index,
                 format_func=lambda i: f"{df.loc[i,'nom']} - {df.loc[i,'ref']}",
                 key="edit_select"
@@ -481,25 +490,29 @@ if is_admin:
 
             row = df.loc[idx]
 
-            e_nom = st.text_input("Nom", row["nom"], key=f"edit_nom_{idx}")
-            e_ref = st.text_input("Code", row["ref"], key=f"edit_ref_{idx}")
+            e_nom = st.text_input("Nom", row["nom"], key=f"e_nom_{idx}")
+            e_ref = st.text_input("Code", row["ref"], key=f"e_ref_{idx}")
 
-            e_date = st.date_input("Date",
-                                   row["date"].date() if not pd.isna(row["date"]) else date.today(),
-                                   key=f"edit_date_{idx}")
+            e_date = st.date_input(
+                "Date",
+                row["date"].date() if not pd.isna(row["date"]) else date.today(),
+                key=f"e_date_{idx}"
+            )
 
             e_statut = st.selectbox(
                 "Statut",
                 ["Prévu", "En cours", "En attente", "Terminé"],
                 index=["Prévu", "En cours", "En attente", "Terminé"].index(row["statut"]),
-                key=f"edit_statut_{idx}"
+                key=f"e_statut_{idx}"
             )
 
-            e_comment = st.text_area("Commentaire", row["commentaire"], key=f"edit_comment_{idx}")
+            e_comment = st.text_area("Commentaire",
+                                     row["commentaire"],
+                                     key=f"e_comment_{idx}")
 
             c1, c2 = st.columns(2)
 
-            if c1.button("💾 Enregistrer modifications", key=f"save_{idx}"):
+            if c1.button("💾 Sauvegarder", key=f"save_{idx}"):
                 df.loc[idx] = [
                     e_nom, e_ref, pd.to_datetime(e_date), e_comment, e_statut, ""
                 ]
@@ -507,7 +520,7 @@ if is_admin:
                 st.success("Modifié !")
                 st.rerun()
 
-            if c2.button("🗑 Supprimer", key=f"delete_{idx}"):
+            if c2.button("🗑 Supprimer", key=f"del_{idx}"):
                 df = df.drop(idx).reset_index(drop=True)
                 sauvegarder_chantiers(df)
                 st.success("Supprimé !")
@@ -545,7 +558,6 @@ with cA:
     if st.button("📄 Export PDF", key="pdf_btn"):
         qr_url = None
         if opts["show_qr"]:
-            # Génération d’un lien partageable
             qr_url = st.experimental_get_query_params().get("share", [""])[0]
 
         pdf = build_pdf(df, opts, qr_url)
