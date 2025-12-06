@@ -1,9 +1,7 @@
 streamlit
 pandas
-numpy
+matplotlib
+pillow
 openpyxl
-altair
-plotly
 reportlab
 qrcode
-python-dateutil
