@@ -11,8 +11,9 @@ from reportlab.lib import colors
 from reportlab.lib.units import mm
 from reportlab.lib.utils import ImageReader
 import qrcode
+import base64
 
-# ================== CONFIGURATION ==================
+# ================== CONFIGURATION GÉNÉRALE ==================
 
 DATA_FILE = "chantiers.json"
 OPTIONS_FILE = "options.json"
@@ -92,45 +93,49 @@ def sauvegarder_options(opts):
         json.dump(opts, f, indent=4)
 
 
-# ================== COULEURS ==================
+# ================== COULEURS DES PASTILLES ==================
 
-def get_statut_color(statut):
-    """Retourne la couleur associée au statut."""
-    statut = str(statut).lower()
-    mapping = {
-        "prévu": "#F5EEDC",      # beige doux
-        "en cours": "#D9C8FF",   # violet pastel
-        "en attente": "#FFD6E7", # rose léger
-        "terminé": "#D9F8C4",    # vert doux
-    }
-    return mapping.get(statut, "")
-
-
-def get_urgence_color(row, opts):
-    """Retourne la couleur d'urgence rouge/orange/jaune."""
+def urgence_emoji(row, opts):
+    """Retourne l'emoji de priorité (pastille ronde)."""
     d = row.get("date")
     if pd.isna(d):
-        return ""
+        return "⚪"  # pas urgent si pas de date
 
     delta = (d.date() - datetime.today().date()).days
 
     if delta <= opts["rouge"]:
-        return "#FF4B4B"
+        return "🔴"  # urgence forte
     if delta <= opts["orange"]:
-        return "#FFA500"
+        return "🟠"  # urgence moyenne
     if delta <= opts["jaune"]:
-        return "#FFD966"
+        return "🟡"  # approche
 
-    return ""
+    return "⚪"  # neutre / pas urgent
+
+
+def statut_emoji(statut):
+    """Retourne l'emoji de statut (pastille ronde)."""
+    statut = str(statut).lower()
+
+    mapping = {
+        "prévu": "⚪",
+        "en cours": "🟣",
+        "en attente": "🔵",
+        "terminé": "🟢",
+    }
+    return mapping.get(statut, "⚪")
 
 
 # ================== EXPORT EXCEL ==================
 
 def build_excel(df):
+    """Construit le fichier Excel exportable."""
     buf = BytesIO()
     df2 = df.copy()
+
     if not df2.empty and pd.api.types.is_datetime64_any_dtype(df2["date"]):
         df2["date"] = df2["date"].dt.strftime("%d/%m/%Y")
+
     df2.rename(
         columns={
             "nom": "Nom de l'affaire",
@@ -142,6 +147,7 @@ def build_excel(df):
         },
         inplace=True,
     )
+
     df2.to_excel(buf, index=False)
     buf.seek(0)
     return buf
@@ -150,6 +156,7 @@ def build_excel(df):
 # ================== EXPORT PDF PREMIUM ==================
 
 def build_pdf(df, opts, qr_url=None):
+    """Construit un PDF premium avec pastilles et légende."""
     buf = BytesIO()
     c = canvas.Canvas(buf, pagesize=A4)
     width, height = A4
@@ -169,112 +176,89 @@ def build_pdf(df, opts, qr_url=None):
     y = height - 110
     c.setFont("Helvetica-Bold", 12)
     c.setFillColor(colors.black)
-    c.drawString(40, y, "Légende des couleurs :")
+    c.drawString(40, y, "Légende :")
 
-    y -= 20
     legend_items = [
-        ("#FF4B4B", f"Urgence forte (≤ {opts['rouge']} jours)"),
-        ("#FFA500", f"Urgence moyenne (≤ {opts['orange']} jours)"),
-        ("#FFD966", f"Approche (≤ {opts['jaune']} jours)"),
-        ("#F5EEDC", "Statut : Prévu"),
-        ("#D9C8FF", "Statut : En cours"),
-        ("#FFD6E7", "Statut : En attente"),
-        ("#D9F8C4", "Statut : Terminé"),
+        ("🔴", "Urgence forte"),
+        ("🟠", "Urgence moyenne"),
+        ("🟡", "Approche"),
+        ("⚪", "Pas urgent / Prévu"),
+        ("🟣", "En cours"),
+        ("🔵", "En attente"),
+        ("🟢", "Terminé"),
     ]
 
-    for color_hex, label in legend_items:
-        c.setFillColor(colors.HexColor(color_hex))
-        c.rect(40, y - 10, 8, 8, fill=1)
-        c.setFillColor(colors.black)
-        c.setFont("Helvetica", 10)
-        c.drawString(55, y - 9, label)
-        y -= 14
+    y -= 25
+    for emoji, label in legend_items:
+        c.drawString(40, y, f"{emoji}  {label}")
+        y -= 16
 
+    # ----- Tableau PDF -----
     y -= 10
-
-    # ----- Tableau : colonnes -----
-    headers = ["Nom de l'affaire", "Code", "Date", "Statut"]
-    col_widths = [220, 70, 60, 80]
+    headers = ["Urg", "Nom", "Code", "Date", "Statut", "État"]
+    col_widths = [25, 210, 60, 60, 60, 30]
     left = 40
 
     # En-têtes
     c.setFillColor(colors.HexColor("#EFEFEF"))
-    c.rect(left, y - 18, sum(col_widths), 18, fill=1, stroke=0)
+    c.rect(left, y - 18, sum(col_widths), 18, fill=1)
 
-    c.setFont("Helvetica-Bold", 10)
     c.setFillColor(colors.black)
+    c.setFont("Helvetica-Bold", 10)
+
     x = left + 4
     for i, h in enumerate(headers):
         c.drawString(x, y - 13, h)
         x += col_widths[i]
 
-    y -= 24
     c.setFont("Helvetica", 9)
+    y -= 24
 
-    # Tri par date pour le PDF
     df_sorted = df.sort_values("date")
 
-    # ----- Lignes -----
     for _, row in df_sorted.iterrows():
-        # Saut de page si nécessaire
+
         if y < 80:
             c.showPage()
             width, height = A4
-            y = height - 60
+            y = height - 80
 
-            c.setFillColor(colors.HexColor("#EFEFEF"))
-            c.rect(left, y - 18, sum(col_widths), 18, fill=1)
-            c.setFillColor(colors.black)
-            c.setFont("Helvetica-Bold", 10)
-            x = left + 4
-            for i, h in enumerate(headers):
-                c.drawString(x, y - 13, h)
-                x += col_widths[i]
+        urg = urgence_emoji(row, opts)
+        stat = statut_emoji(row["statut"])
 
-            y -= 24
-            c.setFont("Helvetica", 9)
-
-        # Bande verticale d'urgence
-        urg = get_urgence_color(row, opts)
-        if urg:
-            c.setFillColor(colors.HexColor(urg))
-            c.rect(left - 8, y - 14, 6, 14, fill=1, stroke=0)
-
-        # Données
-        nom = str(row["nom"]) if not pd.isna(row["nom"]) else ""
-        code = str(row["ref"]) if not pd.isna(row["ref"]) else ""
-        if not pd.isna(row["date"]):
-            date_str = row["date"].strftime("%d/%m/%Y")
-        else:
-            date_str = "-"
-        statut = str(row["statut"]) if not pd.isna(row["statut"]) else ""
+        nom = str(row["nom"])[:40]
+        code = str(row["ref"])[:15]
+        d = "-" if pd.isna(row["date"]) else row["date"].strftime("%d/%m/%Y")
+        statut_txt = str(row["statut"])[:15]
 
         x = left + 4
 
-        # Nom
-        c.setFillColor(colors.black)
-        c.drawString(x, y, nom[:40])
+        # Urgence
+        c.drawString(x, y, urg)
         x += col_widths[0]
 
-        # Code
-        c.drawString(x, y, code[:15])
+        # Nom
+        c.drawString(x, y, nom)
         x += col_widths[1]
 
-        # Date
-        c.drawString(x, y, date_str)
+        # Code
+        c.drawString(x, y, code)
         x += col_widths[2]
 
-        # Statut avec fond coloré
-        statut_bg = get_statut_color(statut)
-        if statut_bg:
-            c.setFillColor(colors.HexColor(statut_bg))
-            c.rect(x, y - 12, col_widths[3] - 4, 14, fill=1, stroke=0)
-        c.setFillColor(colors.black)
-        c.drawString(x + 4, y, statut[:15])
+        # Date
+        c.drawString(x, y, d)
+        x += col_widths[3]
+
+        # Statut
+        c.drawString(x, y, statut_txt)
+        x += col_widths[4]
+
+        # Pastille statut
+        c.drawString(x, y, stat)
 
         y -= 18
 
-    # ----- QR CODE en bas -----
+    # ----- QR CODE -----
     if qr_url:
         qr = qrcode.QRCode(box_size=3, border=1)
         qr.add_data(qr_url)
@@ -285,11 +269,8 @@ def build_pdf(df, opts, qr_url=None):
         img.save(qr_buf, format="PNG")
         qr_buf.seek(0)
 
-        qr_img = ImageReader(qr_buf)
-        c.drawImage(qr_img, width - 45 * mm, 15 * mm, width=30 * mm, preserveAspectRatio=True)
-
+        c.drawImage(ImageReader(qr_buf), width - 45 * mm, 15 * mm, width=30 * mm)
         c.setFont("Helvetica", 9)
-        c.setFillColor(colors.black)
         c.drawRightString(width - 10 * mm, 12 * mm, "Accès application")
 
     c.save()
@@ -297,7 +278,7 @@ def build_pdf(df, opts, qr_url=None):
     return buf
 
 
-# ================== QR CODE (IMAGE APP) ==================
+# ================== QR CODE SIMPLE POUR L'APP ==================
 
 def build_qr_image(url):
     qr = qrcode.QRCode(box_size=8, border=2)
@@ -310,74 +291,12 @@ def build_qr_image(url):
     return buf
 
 
-# ================== IMPORT EXCEL ULTRA-ROBUSTE ==================
-
-def importer_excel(file):
-    df = pd.read_excel(file)
-    df.columns = df.columns.str.strip().str.lower()
-
-    possible_nom_cols = [
-        "nom de l’affaire",
-        "nom de l'affaire",
-        "nom de laffaire",
-        "nom affaire",
-        "nom d’affaire",
-        "nom d'affaire",
-    ]
-
-    possible_code_cols = [
-        "code de l’affaire",
-        "code de l'affaire",
-        "code de laffaire",
-        "code affaire",
-        "codedaffaire",
-    ]
-
-    possible_debut_cols = ["début", "debut"]
-
-    def find_col(possible):
-        for col in df.columns:
-            if col in possible:
-                return col
-        return None
-
-    col_comp = "compétence"
-    col_nom = find_col(possible_nom_cols)
-    col_code = find_col(possible_code_cols)
-    col_debut = find_col(possible_debut_cols)
-
-    missing = []
-    if col_nom is None:
-        missing.append("Nom de l’affaire")
-    if col_code is None:
-        missing.append("Code de l’affaire")
-    if col_debut is None:
-        missing.append("Début")
-    if col_comp not in df.columns:
-        missing.append("Compétence")
-
-    if missing:
-        st.error("⚠️ Colonnes manquantes : " + ", ".join(missing))
-        return pd.DataFrame()
-
-    df_filtre = df[df[col_comp].astype(str).str.lower() == "montage"]
-
-    if df_filtre.empty:
-        st.warning("Aucune ligne 'Montage' trouvée.")
-        return pd.DataFrame()
-
-    df_res = df_filtre[[col_nom, col_code, col_debut]].copy()
-    df_res.columns = ["nom", "ref", "date"]
-    df_res["date"] = pd.to_datetime(df_res["date"], errors="coerce")
-
-    return df_res
-
-
 # ================== INTERFACE STREAMLIT ==================
 
 st.set_page_config(page_title="Liste Priorité Chantier", layout="wide")
 st.title("📋 Gestion des priorités chantier")
 
+# Choix du mode
 mode = st.sidebar.selectbox("Mode", ["Lecture seule", "Administrateur"])
 admin = False
 
@@ -391,109 +310,182 @@ if mode == "Administrateur":
 df = charger_chantiers()
 opts = charger_options()
 
+# États internes
 if "show_filters" not in st.session_state:
     st.session_state["show_filters"] = False
+
 if "qr_url" not in st.session_state:
     st.session_state["qr_url"] = ""
 
 st.divider()
 
+
 # ================== OPTIONS ADMIN ==================
+
 if admin:
     with st.expander("⚙️ Options générales (admin)", expanded=False):
         col_opt1, col_opt2 = st.columns(2)
-        with col_opt1:
-            rouge = st.number_input("Jours max ROUGE", 0, 90, opts["rouge"], key="rouge_opt")
-            orange = st.number_input("Jours max ORANGE", 0, 90, opts["orange"], key="orange_opt")
-            jaune = st.number_input("Jours max JAUNE", 0, 90, opts["jaune"], key="jaune_opt")
-        with col_opt2:
-            show_qr = st.checkbox("Afficher QR Code atelier", value=opts["show_qr"], key="qr_opt")
 
-        if st.button("Enregistrer options", key="save_options"):
-            opts.update({"rouge": rouge, "orange": orange, "jaune": jaune, "show_qr": show_qr})
+        with col_opt1:
+            rouge = st.number_input("Délai ROUGE (jours)", 0, 90, opts["rouge"], key="opt_r")
+            orange = st.number_input("Délai ORANGE (jours)", 0, 90, opts["orange"], key="opt_o")
+            jaune = st.number_input("Délai JAUNE (jours)", 0, 90, opts["jaune"], key="opt_j")
+
+        with col_opt2:
+            show_qr = st.checkbox("Afficher QR Code dans le PDF", value=opts["show_qr"], key="opt_qr")
+
+        if st.button("💾 Enregistrer options", key="save_opts"):
+            opts.update({
+                "rouge": rouge,
+                "orange": orange,
+                "jaune": jaune,
+                "show_qr": show_qr
+            })
             sauvegarder_options(opts)
-            st.success("Options enregistrées ✔")
+            st.success("Options sauvegardées ✔")
+
 
 st.divider()
 
-# ================== IMPORT EXCEL ==================
+
+# ================== IMPORT EXCEL “MONTAGE” ==================
+
+def importer_excel(file):
+    df_x = pd.read_excel(file)
+    df_x.columns = df_x.columns.str.strip().str.lower()
+
+    col_comp = "compétence"
+
+    # Recherche tolérante des colonnes
+    possible_nom = ["nom d'affaire", "nom d'affaire", "nom affaire", "nom d’affaire"]
+    possible_code = ["code d'affaire", "code affaire", "code d’affaire"]
+    possible_date = ["début", "debut"]
+
+    def find_col(df, possibles):
+        for col in df.columns:
+            if col in possibles:
+                return col
+        return None
+
+    col_nom = find_col(df_x, possible_nom)
+    col_code = find_col(df_x, possible_code)
+    col_date = find_col(df_x, possible_date)
+
+    missing = []
+    if col_nom is None: missing.append("Nom d'affaire")
+    if col_code is None: missing.append("Code d'affaire")
+    if col_date is None: missing.append("Début")
+    if col_comp not in df_x.columns: missing.append("Compétence")
+
+    if missing:
+        st.error("❌ Colonnes manquantes dans l'Excel : " + ", ".join(missing))
+        return pd.DataFrame()
+
+    df_filtered = df_x[df_x[col_comp].astype(str).str.lower() == "montage"]
+
+    if df_filtered.empty:
+        st.warning("Aucune ligne avec 'Compétence = Montage' trouvée.")
+        return pd.DataFrame()
+
+    df_out = df_filtered[[col_nom, col_code, col_date]].copy()
+    df_out.columns = ["nom", "ref", "date"]
+    df_out["date"] = pd.to_datetime(df_out["date"], errors="coerce")
+
+    return df_out
+
+
 if admin:
-    with st.expander("📥 Importer depuis un export Excel", expanded=False):
-        st.caption("Seules les lignes où Compétence = 'Montage' seront prises en compte.")
-        fichier_excel = st.file_uploader("Importer un export Excel (.xlsx)", type=["xlsx"], key="import_excel")
+    with st.expander("📥 Importer depuis un export Excel (Montage)", expanded=False):
+
+        st.caption("Rappel : seules les lignes avec Compétence = 'Montage' seront importées.")
+
+        excel_file = st.file_uploader("Importer un fichier Excel", type=["xlsx"], key="import_xls")
 
         df_excel = pd.DataFrame()
 
-        if fichier_excel:
-            df_excel = importer_excel(fichier_excel)
+        if excel_file:
+            df_excel = importer_excel(excel_file)
 
             if not df_excel.empty:
-                st.success("Fichier importé ✔ — lignes 'Montage' détectées.")
+                st.success("Extraction réussie ✔")
+
                 st.dataframe(df_excel, use_container_width=True)
 
                 choix = st.selectbox(
-                    "Sélectionner une ligne à ajouter",
+                    "Sélectionner une ligne à ajouter dans la liste",
                     df_excel.index,
-                    key="choix_excel",
-                    format_func=lambda i: f"{df_excel.loc[i, 'nom']} — {df_excel.loc[i, 'ref']}"
+                    key="xl_select",
+                    format_func=lambda i: f"{df_excel.loc[i,'nom']} — {df_excel.loc[i,'ref']}"
                 )
 
-                if st.button("➕ Ajouter ce chantier", key="add_from_excel_btn"):
-                    ligne = df_excel.loc[choix]
+                if st.button("➕ Ajouter ce chantier", key="xl_add"):
+                    row = df_excel.loc[choix]
 
-                    new = {
-                        "nom": ligne["nom"],
-                        "ref": ligne["ref"],
-                        "date": ligne["date"],
+                    new_row = {
+                        "nom": row["nom"],
+                        "ref": row["ref"],
+                        "date": row["date"],
                         "commentaire": "",
                         "statut": "Prévu",
-                        "priorite": "auto",
+                        "priorite": "auto"
                     }
 
-                    df = pd.concat([df, pd.DataFrame([new])], ignore_index=True)
+                    df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
                     sauvegarder_chantiers(df)
                     st.success("Chantier ajouté ✔")
                     st.rerun()
 
+
 st.divider()
 
-# ================== AJOUT MANUEL ==================
+
+# ================== AJOUT MANUEL D’UN CHANTIER ==================
+
 if admin:
     with st.expander("✏️ Ajouter manuellement un chantier", expanded=False):
+
         col1, col2 = st.columns(2)
+
         with col1:
-            nom = st.text_input("Nom de l'affaire", key="nom_manual")
-            date_montage = st.date_input("Date de montage", value=date.today(), key="date_manual")
+            nom_manual = st.text_input("Nom de l'affaire", key="nom_manu")
+            date_manual = st.date_input("Date de montage", value=date.today(), key="date_manu")
+
         with col2:
-            ref = st.text_input("Code de l'affaire", key="ref_manual")
-            statut = st.selectbox("Statut", ["Prévu", "En cours", "En attente", "Terminé"], key="statut_manual")
+            ref_manual = st.text_input("Code de l'affaire", key="ref_manu")
+            statut_manual = st.selectbox(
+                "Statut",
+                ["Prévu", "En cours", "En attente", "Terminé"],
+                key="statut_manu"
+            )
 
-        commentaire = st.text_area("Commentaire", key="comment_manual")
+        comm_manual = st.text_area("Commentaire", key="comm_manu")
 
-        priorite_man = st.selectbox(
+        prio_manual = st.selectbox(
             "Priorité manuelle",
             ["Automatique", "Rouge", "Orange", "Jaune", "Gris"],
-            key="prio_manual"
+            key="prio_manu"
         )
 
-        if st.button("Ajouter ce chantier", key="add_manual"):
-            if nom and ref:
-                new = {
-                    "nom": nom,
-                    "ref": ref,
-                    "date": str(date_montage),
-                    "commentaire": commentaire,
-                    "statut": statut,
-                    "priorite": priorite_man.lower() if priorite_man != "Automatique" else "auto",
-                }
-                df = pd.concat([df, pd.DataFrame([new])], ignore_index=True)
+        if st.button("➕ Ajouter ce chantier", key="add_manu_btn"):
+            if nom_manual and ref_manual:
+                df = pd.concat([
+                    df,
+                    pd.DataFrame([{
+                        "nom": nom_manual,
+                        "ref": ref_manual,
+                        "date": str(date_manual),
+                        "commentaire": comm_manual,
+                        "statut": statut_manual,
+                        "priorite": prio_manual.lower() if prio_manual != "Automatique" else "auto",
+                    }])
+                ], ignore_index=True)
+
                 sauvegarder_chantiers(df)
-                st.success("Chantier ajouté ✔")
+                st.success("Ajouté ✔")
                 st.rerun()
             else:
-                st.error("Entrez au moins un nom et un code.")
+                st.error("Veuillez renseigner au minimum Nom et Code.")
 
-st.divider()
 
 # ================== LISTE + RECHERCHE + FILTRES ==================
 
@@ -502,16 +494,17 @@ st.subheader("📌 Liste des chantiers")
 if df.empty:
     st.info("Aucun chantier enregistré.")
 else:
+    # Tri de base
     df_sorted = df.sort_values("date")
 
-    # Bouton Filtres
+    # Bouton d'affichage des filtres
     col_btn, _ = st.columns([1, 3])
     with col_btn:
         if st.button("🔎 Filtres", key="toggle_filters"):
             st.session_state["show_filters"] = not st.session_state["show_filters"]
 
+    # Variables de filtres
     statuts_sel = []
-    prio_sel_internal = []
     start_date = end_date = None
     search = ""
 
@@ -521,16 +514,19 @@ else:
     else:
         col_filters, col_table = st.columns([0.0001, 1])
 
+    # -------- Panneau de filtres --------
     with col_filters:
         if st.session_state["show_filters"]:
             st.markdown("##### Filtres")
 
+            # Recherche texte globale
             search = st.text_input(
-                "Recherche texte",
+                "Recherche",
                 placeholder="Nom, code, statut, commentaire...",
                 key="search_global"
             )
 
+            # Filtre sur les statuts
             statuts_uniques = sorted(df_sorted["statut"].dropna().unique().tolist())
             statuts_sel = st.multiselect(
                 "Statut",
@@ -539,77 +535,55 @@ else:
                 key="filter_statut"
             )
 
-            prio_map_display = {
-                "auto": "Automatique",
-                "rouge": "Rouge",
-                "orange": "Orange",
-                "jaune": "Jaune",
-                "gris": "Gris",
-            }
-            prio_uniques = sorted(df_sorted["priorite"].dropna().unique().tolist())
-            prio_display_options = [prio_map_display.get(p, p) for p in prio_uniques]
-
-            prio_sel_display = st.multiselect(
-                "Priorité",
-                prio_display_options,
-                default=prio_display_options,
-                key="filter_prio"
-            )
-
-            inv_prio_map = {v: k for k, v in prio_map_display.items()}
-            prio_sel_internal = [inv_prio_map.get(p, p) for p in prio_sel_display]
-
+            # Filtre sur les dates
             dates_valides = df_sorted["date"].dropna()
             if not dates_valides.empty:
                 min_date = dates_valides.min().date()
                 max_date = dates_valides.max().date()
-                start_date = st.date_input(
-                    "Date min",
-                    value=min_date,
-                    key="filter_date_min"
-                )
-                end_date = st.date_input(
-                    "Date max",
-                    value=max_date,
-                    key="filter_date_max"
-                )
+                start_date = st.date_input("Date min", value=min_date, key="filter_date_min")
+                end_date = st.date_input("Date max", value=max_date, key="filter_date_max")
             else:
                 st.caption("Aucune date valide pour filtrer.")
 
+            # Bouton de réinitialisation
             if st.button("Réinitialiser les filtres", key="reset_filters"):
                 st.session_state["search_global"] = ""
                 st.session_state["filter_statut"] = statuts_uniques
-                st.session_state["filter_prio"] = prio_display_options
                 if "filter_date_min" in st.session_state:
                     del st.session_state["filter_date_min"]
                 if "filter_date_max" in st.session_state:
                     del st.session_state["filter_date_max"]
                 st.rerun()
 
+    # -------- Tableau principal --------
     with col_table:
         df_filtered = df_sorted.copy()
 
+        # Filtre statut
         if statuts_sel:
             df_filtered = df_filtered[df_filtered["statut"].isin(statuts_sel)]
 
-        if prio_sel_internal:
-            df_filtered = df_filtered[df_filtered["priorite"].isin(prio_sel_internal)]
-
+        # Filtre dates
         if start_date and end_date:
             mask_date = df_filtered["date"].notna()
             mask_date &= df_filtered["date"].dt.date.between(start_date, end_date)
             df_filtered = df_filtered[mask_date]
 
+        # Filtre texte global
         if search:
             mask = pd.Series(False, index=df_filtered.index)
             for col in ["nom", "ref", "commentaire", "statut"]:
                 mask |= df_filtered[col].astype(str).str.contains(search, case=False, na=False)
             df_filtered = df_filtered[mask]
 
+        # Construction du tableau affiché
         df_display = df_filtered.copy()
+
+        # Gestion des dates en texte
         if not df_display.empty and pd.api.types.is_datetime64_any_dtype(df_display["date"]):
             df_display["date"] = df_display["date"].dt.strftime("%d/%m/%Y")
 
+        # Renommage des colonnes
         df_display = df_display.rename(
             columns={
                 "nom": "Nom de l'affaire",
@@ -621,132 +595,156 @@ else:
             }
         )
 
-        # Style par ligne : urgence sur Nom/Code/Date, statut sur Statut
-        def style_row(row):
-            idx = row.name
-            if idx not in df_filtered.index:
-                return [""] * len(row)
+        # Ajout des colonnes pastilles (urgence + statut)
+        # On repart de df_filtered (version avec vraie date) pour calculer les pastilles
+        df_filtered_for_emoji = df_filtered.copy()
 
-            base_row = df_filtered.loc[idx]
-            urg = get_urgence_color(base_row, opts)
-            stat_color = get_statut_color(base_row["statut"])
+        # Urgence (tout à gauche)
+        urgence_col = []
+        for idx in df_filtered_for_emoji.index:
+            urgence_col.append(urgence_emoji(df_filtered_for_emoji.loc[idx], opts))
 
-            styles = []
-            for col in row.index:
-                if col in ["Nom de l'affaire", "Code de l'affaire", "Date"] and urg:
-                    styles.append(f"background-color: {urg}")
-                elif col == "Statut" and stat_color:
-                    styles.append(f"background-color: {stat_color}")
-                else:
-                    styles.append("")
-            return styles
+        # Statut (tout à droite)
+        statut_col = []
+        for idx in df_filtered_for_emoji.index:
+            statut_col.append(statut_emoji(df_filtered_for_emoji.loc[idx, "statut"]))
 
-        styled = df_display.style.apply(style_row, axis=1)
+        df_display.insert(0, "Urgence", urgence_col)
+        df_display["État"] = statut_col
 
+        # Affichage
         st.caption(f"{len(df_filtered)} chantier(s) affiché(s)")
-        st.dataframe(styled, use_container_width=True, hide_index=True)
+        st.dataframe(
+            df_display,
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "Urgence": st.column_config.TextColumn(
+                    "Urgence",
+                    help="🔴 très urgent · 🟠 moyen · 🟡 approche · ⚪ pas urgent"
+                ),
+                "État": st.column_config.TextColumn(
+                    "État",
+                    help="⚪ prévu · 🟣 en cours · 🔵 en attente · 🟢 terminé"
+                ),
+            },
+        )
 
-    # ================== MODIFIER / SUPPRIMER (ADMIN) ==================
-    if admin and not df_sorted.empty:
-        st.divider()
-        with st.expander("🛠 Modifier ou supprimer un chantier", expanded=False):
-            idx = st.selectbox(
-                "Sélectionner un chantier",
-                df_sorted.index,
-                key="edit_select",
-                format_func=lambda i: f"{df_sorted.loc[i, 'nom']} — {df_sorted.loc[i, 'ref']}"
-            )
 
-            col1, col2 = st.columns(2)
-            with col1:
-                new_nom = st.text_input("Nom de l'affaire", df.loc[idx, "nom"], key=f"edit_nom_{idx}")
-                current_date = df.loc[idx, "date"]
-                new_date = st.date_input(
-                    "Date de montage",
-                    value=current_date.date() if not pd.isna(current_date) else date.today(),
-                    key=f"edit_date_{idx}"
-                )
-            with col2:
-                new_ref = st.text_input("Code de l'affaire", df.loc[idx, "ref"], key=f"edit_ref_{idx}")
-                new_statut = st.selectbox(
-                    "Statut",
-                    ["Prévu", "En cours", "En attente", "Terminé"],
-                    index=["Prévu", "En cours", "En attente", "Terminé"].index(df.loc[idx, "statut"]),
-                    key=f"edit_statut_{idx}"
-                )
-
-            new_commentaire = st.text_area(
-                "Commentaire",
-                df.loc[idx, "commentaire"],
-                key=f"edit_comment_{idx}"
-            )
-
-            prio_list = ["Automatique", "Rouge", "Orange", "Jaune", "Gris"]
-            current_prio = df.loc[idx, "priorite"]
-            display_prio = current_prio.capitalize() if current_prio != "auto" else "Automatique"
-
-            new_prio = st.selectbox(
-                "Priorité manuelle",
-                prio_list,
-                index=prio_list.index(display_prio),
-                key=f"edit_prio_{idx}"
-            )
-
-            colA, colB = st.columns(2)
-
-            with colA:
-                if st.button("💾 Enregistrer modifications", key=f"save_edit_{idx}"):
-                    df.loc[idx, "nom"] = new_nom
-                    df.loc[idx, "ref"] = new_ref
-                    df.loc[idx, "date"] = str(new_date)
-                    df.loc[idx, "statut"] = new_statut
-                    df.loc[idx, "commentaire"] = new_commentaire
-                    df.loc[idx, "priorite"] = new_prio.lower() if new_prio != "Automatique" else "auto"
-
-                    sauvegarder_chantiers(df)
-                    st.success("Modifié ✔")
-                    st.rerun()
-
-            with colB:
-                if st.button("🗑 Supprimer ce chantier", key=f"delete_{idx}"):
-                    df = df.drop(idx).reset_index(drop=True)
-                    sauvegarder_chantiers(df)
-                    st.success("Chantier supprimé ✔")
-                    st.rerun()
+# ================== MODIFIER / SUPPRIMER (ADMIN) ==================
 
 st.divider()
 
+if admin and not df.empty:
+    with st.expander("🛠 Modifier ou supprimer un chantier", expanded=False):
+
+        choix_modif = st.selectbox(
+            "Sélectionner un chantier",
+            df.index,
+            key="edit_select",
+            format_func=lambda i: f"{df.loc[i, 'nom']} — {df.loc[i, 'ref']}"
+        )
+
+        col1, col2 = st.columns(2)
+
+        with col1:
+            new_nom = st.text_input("Nom de l'affaire", df.loc[choix_modif, "nom"], key=f"edit_nom_{choix_modif}")
+            current_date = df.loc[choix_modif, "date"]
+            new_date = st.date_input(
+                "Date de montage",
+                value=current_date.date() if not pd.isna(current_date) else date.today(),
+                key=f"edit_date_{choix_modif}"
+            )
+
+        with col2:
+            new_ref = st.text_input("Code de l'affaire", df.loc[choix_modif, "ref"], key=f"edit_ref_{choix_modif}")
+            new_statut = st.selectbox(
+                "Statut",
+                ["Prévu", "En cours", "En attente", "Terminé"],
+                index=["Prévu", "En cours", "En attente", "Terminé"].index(df.loc[choix_modif, "statut"]),
+                key=f"edit_statut_{choix_modif}"
+            )
+
+        new_commentaire = st.text_area(
+            "Commentaire",
+            df.loc[choix_modif, "commentaire"],
+            key=f"edit_comm_{choix_modif}"
+        )
+
+        prio_list = ["Automatique", "Rouge", "Orange", "Jaune", "Gris"]
+        current_prio = df.loc[choix_modif, "priorite"]
+        prio_display = current_prio.capitalize() if current_prio != "auto" else "Automatique"
+
+        new_prio = st.selectbox(
+            "Priorité manuelle",
+            prio_list,
+            index=prio_list.index(prio_display),
+            key=f"edit_prio_{choix_modif}"
+        )
+
+        colA, colB = st.columns(2)
+
+        with colA:
+            if st.button("💾 Enregistrer modifications", key=f"save_edit_{choix_modif}"):
+                df.loc[choix_modif, "nom"] = new_nom
+                df.loc[choix_modif, "ref"] = new_ref
+                df.loc[choix_modif, "date"] = str(new_date)
+                df.loc[choix_modif, "statut"] = new_statut
+                df.loc[choix_modif, "commentaire"] = new_commentaire
+                df.loc[choix_modif, "priorite"] = new_prio.lower() if new_prio != "Automatique" else "auto"
+
+                sauvegarder_chantiers(df)
+                st.success("Modifications enregistrées ✔")
+                st.rerun()
+
+        with colB:
+            if st.button("🗑 Supprimer ce chantier", key=f"delete_{choix_modif}"):
+                df = df.drop(choix_modif).reset_index(drop=True)
+                sauvegarder_chantiers(df)
+                st.success("Chantier supprimé ✔")
+                st.rerun()
+
+
 # ================== EXPORTS ==================
 
-st.subheader("📤 Export")
+st.divider()
+st.subheader("📤 Exports")
 
 if df.empty:
-    st.info("Ajoutez un chantier pour activer l’export.")
+    st.info("Ajoutez un chantier pour activer les exports.")
 else:
-    col1, col2 = st.columns(2)
-    with col1:
+    col_pdf, col_excel = st.columns(2)
+
+    with col_pdf:
         qr_url_for_pdf = st.session_state.get("qr_url") or None
+
         st.download_button(
             "📄 Export PDF",
             build_pdf(df, opts, qr_url=qr_url_for_pdf),
             file_name=f"Gestion_Projet_Priorites_{datetime.now().strftime('%Y-%m-%d')}.pdf",
             mime="application/pdf"
         )
-    with col2:
-        st.download_button("📊 Export Excel", build_excel(df), "chantiers.xlsx")
 
-st.divider()
+    with col_excel:
+        st.download_button(
+            "📊 Export Excel",
+            build_excel(df),
+            file_name="chantiers.xlsx"
+        )
 
-# ================== QR CODE ==================
+
+# ================== QR CODE DANS L’APPLICATION ==================
 
 if opts["show_qr"]:
+    st.divider()
     st.subheader("📱 QR Code atelier")
 
     qr_url = st.text_input(
-        "URL de l'application",
-        key="qr_url",
-        placeholder="https://..."
+        "URL de l'application (pour générer un QR code)",
+        value=st.session_state["qr_url"],
+        key="qr_url"
     )
 
     if qr_url:
         st.image(build_qr_image(qr_url), width=200)
+        st.caption("Scannez ce QR Code pour accéder à l’application")
