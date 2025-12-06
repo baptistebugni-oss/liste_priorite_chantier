@@ -96,23 +96,21 @@ def sauvegarder_options(opts):
 # ==============================
 
 def get_urgence_color(row, opts):
-    """Couleur hex pour le PDF (bande urgence)."""
     d = row.get("date")
     if pd.isna(d):
         return "#DDDDDD"
 
     delta = (d.date() - datetime.today().date()).days
     if delta <= opts["rouge"]:
-        return "#FF4B4B"   # rouge
+        return "#FF4B4B"
     if delta <= opts["orange"]:
-        return "#FFA500"   # orange
+        return "#FFA500"
     if delta <= opts["jaune"]:
-        return "#FFD966"   # jaune
+        return "#FFD966"
     return "#DDDDDD"
 
 
 def get_statut_color(statut):
-    """Couleur hex pour le PDF (bande statut)."""
     statut = str(statut).lower().strip()
     mapping = {
         "prévu": "#F5EEDC",
@@ -124,7 +122,6 @@ def get_statut_color(statut):
 
 
 def urgence_emoji(row, opts):
-    """Pastille d’urgence (UI)."""
     d = row.get("date")
     if pd.isna(d):
         return "⚪"
@@ -139,7 +136,6 @@ def urgence_emoji(row, opts):
 
 
 def statut_emoji(statut):
-    """Pastille de statut (UI)."""
     statut = str(statut).lower().strip()
     mapping = {
         "prévu": "⚪",
@@ -157,7 +153,6 @@ def statut_emoji(statut):
 def importer_excel(file):
     df_x = pd.read_excel(file)
 
-    # Normalisation
     df_x.columns = (
         df_x.columns
         .str.strip()
@@ -231,7 +226,7 @@ def build_pdf(df, opts, qr_url=None):
     c = canvas.Canvas(buf, pagesize=A4)
     width, height = A4
 
-    # Titre
+    # ----------- TITRE ----------- #
     c.setFillColor(colors.HexColor("#2F3C7E"))
     c.rect(0, height - 60, width, 60, fill=1)
     c.setFillColor(colors.white)
@@ -240,7 +235,7 @@ def build_pdf(df, opts, qr_url=None):
     c.setFont("Helvetica", 10)
     c.drawString(40, height - 52, f"Export du {datetime.now().strftime('%d/%m/%Y %H:%M')}")
 
-    # Légende
+    # ----------- LÉGENDE ----------- #
     y = height - 95
     c.setFillColor(colors.black)
     c.setFont("Helvetica-Bold", 12)
@@ -248,7 +243,7 @@ def build_pdf(df, opts, qr_url=None):
     y -= 18
     c.setFont("Helvetica", 10)
 
-    legend = [
+    legend_items = [
         ("#FF4B4B", f"Urgence forte (≤ {opts['rouge']} j)"),
         ("#FFA500", f"Urgence moyenne (≤ {opts['orange']} j)"),
         ("#FFD966", f"Approche (≤ {opts['jaune']} j)"),
@@ -258,7 +253,8 @@ def build_pdf(df, opts, qr_url=None):
         ("#FFD6E7", "En attente"),
         ("#D9F8C4", "Terminé"),
     ]
-    for color_hex, label in legend:
+
+    for color_hex, label in legend_items:
         c.setFillColor(colors.HexColor(color_hex))
         c.rect(40, y - 8, 8, 8, fill=1, stroke=0)
         c.setFillColor(colors.black)
@@ -267,7 +263,7 @@ def build_pdf(df, opts, qr_url=None):
 
     y -= 10
 
-    # Tableau
+    # ----------- TABLEAU ----------- #
     headers = ["Urg.", "Nom", "Code", "Date", "Statut", "État"]
     col_widths = [30, 210, 60, 60, 70, 40]
     row_h = 18
@@ -308,9 +304,9 @@ def build_pdf(df, opts, qr_url=None):
 
         x = left
 
-        # Urgence (petit carré)
+        # Urgence carré
         c.setFillColor(colors.HexColor(urg_color))
-        c.rect(x + 8, y - row_h + 4, 8, 8, fill=1, stroke=0)
+        c.rect(x + 8, y - row_h + 4, 8, 8, fill=1)
         x += col_widths[0]
 
         # Nom
@@ -330,24 +326,26 @@ def build_pdf(df, opts, qr_url=None):
         c.drawString(x + 2, y - row_h + 5, statut_txt[:15])
         x += col_widths[4]
 
-        # Statut (carré)
+        # Statut carré
         c.setFillColor(colors.HexColor(stat_color))
-        c.rect(x + 10, y - row_h + 4, 8, 8, fill=1, stroke=0)
+        c.rect(x + 10, y - row_h + 4, 8, 8, fill=1)
 
         y -= row_h
 
-    # QR code
+    # ----------- QR CODE ----------- #
     if qr_url:
         qr = qrcode.QRCode(box_size=3, border=1)
         qr.add_data(qr_url)
         qr.make(fit=True)
         img = qr.make_image()
+
         qr_buf = BytesIO()
         img.save(qr_buf, format="PNG")
         qr_buf.seek(0)
-        c.drawImage(ImageReader(qr_buf), width - 45 * mm, 15 * mm, width=30 * mm, preserveAspectRatio=True)
-        c.setFillColor(colors.black)
+
+        c.drawImage(ImageReader(qr_buf), width - 45 * mm, 15 * mm, width=30 * mm)
         c.setFont("Helvetica", 9)
+        c.setFillColor(colors.black)
         c.drawRightString(width - 10 * mm, 12 * mm, "Accès application")
 
     c.save()
@@ -356,7 +354,7 @@ def build_pdf(df, opts, qr_url=None):
 
 
 # ==============================
-# QR CODE POUR L’APP
+# QR CODE DISPLAY
 # ==============================
 
 def build_qr_image(url):
@@ -435,7 +433,7 @@ if admin:
                     df_imp.index,
                     format_func=lambda i: f"{df_imp.loc[i, 'nom']} — {df_imp.loc[i, 'ref']}",
                 )
-                if st.button("➕ Ajouter ce chantier"):
+                if st.button("➕ Ajouter ce chantier", key="add_from_excel"):
                     ligne = df_imp.loc[choix]
                     new_row = {
                         "nom": ligne["nom"],
@@ -469,7 +467,7 @@ if admin:
         commentaire = st.text_area("Commentaire")
         prio = st.selectbox("Priorité manuelle", ["Automatique", "Rouge", "Orange", "Jaune", "Gris"])
 
-        if st.button("➕ Ajouter ce chantier"):
+        if st.button("➕ Ajouter ce chantier", key="add_manual"):
             if nom and ref:
                 new_row = {
                     "nom": nom,
@@ -486,7 +484,6 @@ if admin:
             else:
                 st.error("Nom et Code sont obligatoires.")
 
-st.divider()
 
 # ==============================
 # LISTE + FILTRES + PASTILLES
@@ -571,7 +568,7 @@ else:
             "statut": "Statut",
         }, inplace=True)
 
-        # réorganisation colonnes
+        # colonnes dans l'ordre
         cols_order = ["Urgence", "Nom de l'affaire", "Code de l'affaire", "Date", "Statut", "État", "Commentaire"]
         for c in cols_order:
             if c not in df_disp.columns:
@@ -579,6 +576,7 @@ else:
         df_disp = df_disp[cols_order]
 
         st.caption(f"{len(df_disp)} chantier(s) affiché(s)")
+
         st.dataframe(
             df_disp,
             use_container_width=True,
@@ -587,10 +585,12 @@ else:
                 "Urgence": st.column_config.TextColumn(
                     "Urgence",
                     help="🔴 très urgent · 🟠 moyen · 🟡 approche · ⚪ pas urgent",
+                    width="small",
                 ),
                 "État": st.column_config.TextColumn(
                     "État",
                     help="⚪ prévu · 🟣 en cours · 🔵 en attente · 🟢 terminé",
+                    width="small",
                 ),
             }
         )
@@ -632,7 +632,7 @@ if admin and not df.empty:
 
         colA, colB = st.columns(2)
         with colA:
-            if st.button("💾 Enregistrer les modifications"):
+            if st.button("💾 Enregistrer les modifications", key="edit_save"):
                 df.loc[idx, "nom"] = new_nom
                 df.loc[idx, "ref"] = new_ref
                 df.loc[idx, "date"] = str(new_date)
@@ -644,14 +644,14 @@ if admin and not df.empty:
                 st.rerun()
 
         with colB:
-            if st.button("🗑 Supprimer ce chantier"):
+            if st.button("🗑 Supprimer ce chantier", key="edit_delete"):
                 df = df.drop(idx).reset_index(drop=True)
                 sauvegarder_chantiers(df)
                 st.success("Chantier supprimé ✔")
                 st.rerun()
 
 # ==============================
-# EXPORTS
+# EXPORTS PDF / EXCEL
 # ==============================
 
 st.divider()
