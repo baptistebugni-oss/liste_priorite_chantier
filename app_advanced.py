@@ -360,92 +360,113 @@ else:
     st.dataframe(disp, use_container_width=True)
 
 
-# =============================
-# CALENDRIER SIMPLE (texte par jour)
-# =============================
+# ============================================
+#    📆 CALENDRIER DES CHANTIERS (expander)
+# ============================================
 
-st.subheader("📆 Calendrier des chantiers")
+import calendar
 
-if df_filtered.empty:
-    st.info("Aucun chantier à afficher dans le calendrier.")
-else:
-    df_cal = df_filtered.copy()
-    df_cal = df_cal[df_cal["date"].notna()]
+def truncate(text, length=12):
+    """Coupe le nom de l'affaire proprement pour éviter les débordements."""
+    text = str(text)
+    return text if len(text) <= length else text[:length] + "…"
 
-    if df_cal.empty:
-        st.info("Aucune date valide pour le calendrier.")
+with st.expander("📆 Calendrier des chantiers", expanded=False):
+
+    st.markdown("### Calendrier des chantiers")
+
+    if df_filtered.empty:
+        st.info("Aucun chantier à afficher dans le calendrier.")
     else:
-        horizon = opts.get("horizon", 60)
-        today = date.today()
-        end_date = today + pd.Timedelta(days=horizon)
 
-        df_cal = df_cal[
-            (df_cal["date"].dt.date >= today) &
-            (df_cal["date"].dt.date <= end_date)
-        ]
+        # Processus : on garde uniquement les dates valides
+        df_cal = df_filtered.copy()
+        df_cal = df_cal[df_cal["date"].notna()]
 
         if df_cal.empty:
-            st.warning("Aucun chantier dans l'horizon de calendrier défini.")
+            st.info("Aucune date valide pour afficher le calendrier.")
         else:
-            df_cal["jour"] = df_cal["date"].dt.day
-            df_cal["mois"] = df_cal["date"].dt.to_period("M").astype(str)
+            # Période d'affichage (paramétrable dans options admin)
+            horizon = opts.get("horizon", 60)
+            today = date.today()
+            end_date = today + pd.Timedelta(days=horizon)
 
-            mois_uniques = sorted(df_cal["mois"].unique())
-            mois_index = {m: i for i, m in enumerate(mois_uniques)}
+            # Filtrer dans la fenêtre glissante
+            df_cal = df_cal[
+                (df_cal["date"].dt.date >= today) &
+                (df_cal["date"].dt.date <= end_date)
+            ]
 
-            statut_colors = {
-                "Prévu": "#B39B6B",
-                "En cours": "#7F3FBF",
-                "En attente": "#E75480",
-                "Terminé": "#2E8B57",
-            }
+            if df_cal.empty:
+                st.warning("Aucun chantier dans la période définie.")
+            else:
 
-            fig, ax = plt.subplots(figsize=(10, 12))
+                # Préparation colonnes d'affichage
+                df_cal["jour"] = df_cal["date"].dt.day
+                df_cal["mois_num"] = df_cal["date"].dt.month
+                df_cal["annee"] = df_cal["date"].dt.year
 
-            offsets = {}  # (x, jour) -> nombre de lignes déjà utilisées
-
-            for _, row in df_cal.iterrows():
-                m = row["mois"]
-                j = int(row["jour"])
-                nom = str(row["nom"])
-
-                x = mois_index[m]
-                y = j
-
-                key = (x, y)
-                n_offset = offsets.get(key, 0)
-                offsets[key] = n_offset + 1
-
-                y_text = y + (n_offset * 0.25)
-
-                color = statut_colors.get(row["statut"], "black")
-
-                ax.text(
-                    x,
-                    y_text,
-                    nom,
-                    ha="center",
-                    va="center",
-                    fontsize=8,
-                    color=color,
+                # Nom en clair des mois : ex : "Janvier 2026"
+                df_cal["mois_label"] = df_cal.apply(
+                    lambda r: f"{calendar.month_name[r['mois_num']]} {r['annee']}",
+                    axis=1
                 )
 
-            ax.set_xticks(range(len(mois_uniques)))
-            ax.set_xticklabels(mois_uniques, rotation=45, ha="right")
+                # Liste ordonnée des colonnes mois
+                mois_uniques = df_cal["mois_label"].unique().tolist()
 
-            ax.set_yticks(range(1, 32))
-            ax.set_yticklabels(range(1, 32))
-            ax.set_ylabel("Jour du mois")
-            ax.set_xlabel("Mois")
+                # Couleurs du statut
+                statut_colors = {
+                    "Prévu": "#B39B6B",      # beige
+                    "En cours": "#7F3FBF",   # violet
+                    "En attente": "#E75480", # rose
+                    "Terminé": "#2E8B57",    # vert
+                }
 
-            ax.set_ylim(0.5, 31.5)
-            ax.invert_yaxis()
+                # Construction du graphique
+                fig, ax = plt.subplots(figsize=(10, 14))
 
-            ax.grid(True, which="both", linestyle="--", linewidth=0.3, alpha=0.5)
-            ax.set_title(f"Chantiers sur {horizon} jours à partir d'aujourd'hui")
+                # Empilement propre par cellule
+                offsets = {}
 
-            plt.tight_layout()
-            st.pyplot(fig, use_container_width=True)
+                for _, r in df_cal.iterrows():
+                    x = mois_uniques.index(r["mois_label"])
+                    y = r["jour"]
+
+                    key = (x, y)
+                    offset = offsets.get(key, 0)
+                    offsets[key] = offset + 1
+
+                    y_text = y - (offset * 0.22)
+
+                    # Récup couleur selon statut
+                    color = statut_colors.get(r["statut"], "black")
+
+                    ax.text(
+                        x,
+                        y_text,
+                        truncate(r["nom"], 14),
+                        ha="center",
+                        va="center",
+                        fontsize=8,
+                        color=color
+                    )
+
+                # Paramétrage axes
+                ax.set_xticks(range(len(mois_uniques)))
+                ax.set_xticklabels(mois_uniques, rotation=30, ha="right")
+
+                ax.set_yticks(range(1, 32))
+                ax.set_ylim(32, 0)  # Pour afficher le jour 1 en haut
+                ax.set_ylabel("Jour du mois")
+                ax.set_xlabel("Mois")
+
+                ax.grid(True, linestyle="--", linewidth=0.3, alpha=0.5)
+
+                ax.set_title(f"Chantiers sur {horizon} jours à partir d'aujourd'hui")
+
+                plt.tight_layout()
+                st.pyplot(fig, use_container_width=True)
 
 
 # =======================================================
