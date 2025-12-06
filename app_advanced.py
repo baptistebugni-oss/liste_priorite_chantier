@@ -11,6 +11,7 @@ from reportlab.lib import colors
 from reportlab.lib.units import mm
 from reportlab.lib.utils import ImageReader
 import qrcode
+import plotly.express as px
 
 import altair as alt
 
@@ -410,6 +411,105 @@ if "qr_url" not in st.session_state:
 st.divider()
 
 # ==============================
+# MODE PLEIN ÉCRAN POUR LE GANTT
+# ==============================
+
+if "gantt_fullscreen" not in st.session_state:
+    st.session_state["gantt_fullscreen"] = False
+
+# Si on est en mode plein écran, on n'affiche QUE le Gantt
+if st.session_state["gantt_fullscreen"]:
+    st.subheader("📈 Tableau Gantt – Vue plein écran (60 jours)")
+
+    if df.empty:
+        st.info("Aucun chantier à afficher.")
+    else:
+        df_graph = df.dropna(subset=["date"]).copy()
+
+        if df_graph.empty:
+            st.info("Aucune date valide pour afficher le Gantt.")
+        else:
+            today = datetime.today().date()
+            horizon = today + pd.Timedelta(days=60)
+
+            # Filtre sur 60 jours
+            df_graph = df_graph[
+                (df_graph["date"].dt.date >= today) &
+                (df_graph["date"].dt.date <= horizon)
+            ]
+
+            if df_graph.empty:
+                st.warning("Aucun chantier dans les 60 prochains jours.")
+            else:
+                # Préparation des colonnes pour le Gantt
+                df_graph["start"] = df_graph["date"]
+                df_graph["end"] = df_graph["date"] + pd.Timedelta(days=1)
+
+                # Mapping de couleurs pour les statuts
+                color_map = {
+                    "Prévu": "#F5EEDC",
+                    "En cours": "#D9C8FF",
+                    "En attente": "#FFD6E7",
+                    "Terminé": "#D9F8C4",
+                }
+
+                # On force les statuts connus, sinon "Prévu" par défaut
+                df_graph["statut"] = df_graph["statut"].fillna("Prévu")
+                df_graph.loc[~df_graph["statut"].isin(color_map.keys()), "statut"] = "Prévu"
+
+                fig = px.timeline(
+                    df_graph,
+                    x_start="start",
+                    x_end="end",
+                    y="nom",
+                    color="statut",
+                    color_discrete_map=color_map,
+                    hover_data={
+                        "ref": True,
+                        "commentaire": True,
+                        "date": True,
+                        "start": False,
+                        "end": False,
+                    },
+                )
+
+                # Inverser l'ordre des chantiers (plus lisible)
+                fig.update_yaxes(autorange="reversed", title_text="Chantiers")
+
+                # Format de date à la française
+                fig.update_xaxes(
+                    title_text="Date",
+                    range=[pd.to_datetime(today), pd.to_datetime(horizon)],
+                    tickformat="%d/%m/%Y"
+                )
+
+                # Ligne "aujourd'hui"
+                fig.add_vline(
+                    x=pd.to_datetime(today),
+                    line_color="red",
+                    line_dash="dash",
+                    annotation_text="Aujourd'hui",
+                    annotation_position="top left"
+                )
+
+                fig.update_layout(
+                    height=600,
+                    margin=dict(l=60, r=20, t=60, b=40),
+                    legend_title_text="Statut",
+                )
+
+                st.plotly_chart(fig, use_container_width=True)
+
+    # Bouton retour
+    if st.button("🔙 Retour à la vue principale"):
+        st.session_state["gantt_fullscreen"] = False
+        st.experimental_rerun()
+
+    # On arrête ici pour ne pas dessiner le reste de l'app
+    st.stop()
+    
+
+# ==============================
 # OPTIONS ADMIN
 # ==============================
 
@@ -587,6 +687,11 @@ else:
 
     st.dataframe(df_show, use_container_width=True)
 
+st.markdown("---")
+if st.button("📊 Afficher le tableau Gantt (plein écran)", key="btn_show_gantt"):
+    st.session_state["gantt_fullscreen"] = True
+    st.experimental_rerun()
+
 
 # ==============================
 # MODIFIER / SUPPRIMER (ADMIN)
@@ -657,67 +762,6 @@ if admin:
                 sauvegarder_chantiers(df)
                 st.success("Chantier supprimé ✔")
                 st.rerun()
-
-
-# ==============================
-# VUE GRAPHIQUE DES CHANTIERS
-# ==============================
-
-st.divider()
-st.subheader("📈 Vue temporelle des chantiers")
-
-if df.empty:
-    st.info("Aucun chantier à afficher dans le graphique.")
-else:
-    # On prend TOUS les chantiers (même si filtrés ailleurs)
-    df_graph = df.dropna(subset=["date"]).copy()
-
-    if df_graph.empty:
-        st.info("Aucune date valide pour afficher le graphique.")
-    else:
-        # On force un ordre propre des statuts
-        df_graph["statut"] = df_graph["statut"].fillna("Prévu")
-
-        # DataFrame pour la ligne "aujourd'hui"
-        today = datetime.today().date()
-        df_today = pd.DataFrame({"date": [pd.to_datetime(today)]})
-
-        # Graphique principal : un point par chantier
-        base = alt.Chart(df_graph).encode(
-            x=alt.X("date:T", title="Date de montage"),
-            y=alt.Y("nom:N", title="Chantier", sort="-x"),
-            color=alt.Color(
-                "statut:N",
-                title="Statut",
-                scale=alt.Scale(
-                    domain=["Prévu", "En cours", "En attente", "Terminé"],
-                    range=["#F5EEDC", "#D9C8FF", "#FFD6E7", "#D9F8C4"],
-                ),
-            ),
-            tooltip=[
-                alt.Tooltip("nom:N", title="Nom de l'affaire"),
-                alt.Tooltip("ref:N", title="Code de l'affaire"),
-                alt.Tooltip("date:T", title="Date"),
-                alt.Tooltip("statut:N", title="Statut"),
-                alt.Tooltip("commentaire:N", title="Commentaire"),
-            ],
-        )
-
-        points = base.mark_circle(size=120)
-
-        # Ligne verticale pour "aujourd'hui"
-        today_line = (
-            alt.Chart(df_today)
-            .mark_rule(color="red", strokeDash=[4, 4])
-            .encode(x="date:T")
-        )
-
-        chart = (points + today_line).properties(
-            height=400,
-            title="Position des chantiers dans le temps"
-        ).interactive()
-
-        st.altair_chart(chart, use_container_width=True)
 
 
 # ==============================
