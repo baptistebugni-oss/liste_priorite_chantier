@@ -429,14 +429,14 @@ def build_pdf_liste(df, opts, qr_url=None):
                 c.setFont("Helvetica", 10)
                
         # ======= DATE FRANÇAISE LONGUE =======
-        jours_fr = {
-            0: "Lundi",
-            1: "Mardi",
-            2: "Mercredi",
-            3: "Jeudi",
-            4: "Vendredi",
-            5: "Samedi",
-            6: "Dimanche"
+jours_fr = {
+    0: "Lundi",
+    1: "Mardi",
+    2: "Mercredi",
+    3: "Jeudi",
+    4: "Vendredi",
+    5: "Samedi",
+    6: "Dimanche"
 }
 
 mois_fr_long = {
@@ -453,8 +453,8 @@ mois_txt = mois_fr_long[d.month]
 date_longue = f"{jour_txt} {d.day:02d} {mois_txt}"
 
 txt = f"{date_longue} — {row['nom']} ({row['ref']})"
+c.drawString(margin_left + 18, y, txt)
 
-                c.drawString(margin_left + 18, y, txt)
 
                 stat = COLOR_STATUT.get(row["statut"], "#F5EEDC")
                 draw_circle(c, margin_left + 300, y + 2, 4, stat)
