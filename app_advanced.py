@@ -33,7 +33,7 @@ DEFAULT_OPTIONS = {
 COLUMNS = ["nom", "ref", "date", "commentaire", "statut", "priorite"]
 
 # ==============================
-# PDF COLORS
+# COULEURS PDF
 # ==============================
 
 COLOR_URGENCE = {
@@ -50,8 +50,8 @@ COLOR_STATUT = {
     "Terminé": "#4CD964",
 }
 
-# Pastille graphique
 def draw_circle(c, x, y, size, color_hex):
+    """Dessine une pastille ronde de couleur."""
     c.setFillColor(colors.HexColor(color_hex))
     c.circle(x, y, size, fill=1, stroke=0)
 
@@ -211,7 +211,7 @@ def truncate_nom(text, length=30):
 
 
 # ==============================
-# PDF AVANCÉ — VERSION PROPRE & ALIGNÉE
+# EXPORT PDF (SIMPLE, LISIBLE)
 # ==============================
 
 def build_pdf_liste(df, opts, qr_url=None):
@@ -220,7 +220,6 @@ def build_pdf_liste(df, opts, qr_url=None):
 
     page_w, page_h = A4
     margin_left = 30
-    y = page_h - 40
 
     # ===== EN-TÊTE =====
     c.setFillColor(colors.HexColor("#2F3C7E"))
@@ -233,7 +232,7 @@ def build_pdf_liste(df, opts, qr_url=None):
     c.setFont("Helvetica", 10)
     c.drawString(20, page_h - 60, f"Export du {datetime.now().strftime('%d/%m/%Y %H:%M')}")
 
-    # Position initiale sous l'en-tête
+    # Position de départ sous l'en-tête
     y = page_h - 110
 
     # ===== LÉGENDE =====
@@ -261,7 +260,8 @@ def build_pdf_liste(df, opts, qr_url=None):
     y -= 20  # espace avant tableau
 
     # ===== TABLEAU =====
-    col_widths = [22, 180, 55, 55, 65, 22]  # cercle, nom, code, date, statut, cercle
+    # pastille urgence | Nom | Code | Date | Statut | pastille statut
+    col_widths = [22, 190, 60, 60, 70, 22]
     headers = ["", "Nom de l'affaire", "Code", "Date", "Statut", ""]
 
     def draw_header(ypos):
@@ -279,16 +279,12 @@ def build_pdf_liste(df, opts, qr_url=None):
         return ypos - 25
 
     y = draw_header(y)
-
     c.setFont("Helvetica", 9)
 
-    # Tri par date
     df_sorted = df.sort_values(by="date")
 
-    # ===== LIGNES =====
     for _, row in df_sorted.iterrows():
-
-        # Nouvelle page si manque de place
+        # Nouvelle page si on arrive en bas
         if y < 80:
             c.showPage()
             c.setFont("Helvetica", 10)
@@ -296,31 +292,8 @@ def build_pdf_liste(df, opts, qr_url=None):
             y = draw_header(y)
             c.setFont("Helvetica", 9)
 
-        # Couleur urgence pour fond (NAM + CODE + DATE)
+        # --- Couleur urgence (pastille gauche) ---
         urg_hex = get_urgence_color(row, opts)
-        c.setFillColor(colors.HexColor(urg_hex))
-        c.rect(
-            margin_left + col_widths[0],      # début zone
-            y - 12,
-            col_widths[1] + col_widths[2] + col_widths[3],  # largeur zone
-            12,
-            fill=1,
-            stroke=0,
-        )
-
-        # Couleur statut pour fond cellule "Statut"
-        stat_hex = COLOR_STATUT.get(row["statut"], "#F5EEDC")
-        c.setFillColor(colors.HexColor(stat_hex))
-        c.rect(
-            margin_left + col_widths[0] + col_widths[1] + col_widths[2] + col_widths[3],
-            y - 12,
-            col_widths[4],
-            12,
-            fill=1,
-            stroke=0,
-        )
-
-        # Pastille urgence (gauche)
         draw_circle(
             c,
             margin_left + col_widths[0] / 2,
@@ -329,16 +302,17 @@ def build_pdf_liste(df, opts, qr_url=None):
             urg_hex
         )
 
-        # Pastille statut (droite)
+        # --- Couleur statut (pastille droite) ---
+        stat_hex = COLOR_STATUT.get(row["statut"], "#F5EEDC")
         draw_circle(
             c,
-            margin_left + sum(col_widths) - col_widths[5] / 2,
+            margin_left + sum(col_widths) - col_widths[-1] / 2,
             y - 6,
             4,
             stat_hex
         )
 
-        # Texte
+        # --- Texte dans Nom / Code / Date / Statut ---
         dstr = "-" if pd.isna(row["date"]) else row["date"].strftime("%d/%m/%Y")
         values = ["", row["nom"], row["ref"], dstr, row["statut"], ""]
 
@@ -348,7 +322,7 @@ def build_pdf_liste(df, opts, qr_url=None):
             c.drawString(xx, y, str(val))
             xx += w
 
-        y -= 18
+        y -= 18  # espacement vertical
 
     # ===== QR CODE =====
     if opts.get("show_qr") and qr_url:
