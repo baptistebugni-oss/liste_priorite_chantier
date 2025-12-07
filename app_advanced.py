@@ -328,7 +328,7 @@ def build_pdf_liste(df, opts, qr_url=None):
         draw_circle(
             c,
             margin_left + col_widths[0] / 2,
-            y - 1,
+            y + 4,
             4,
             urg,
         )
@@ -338,7 +338,7 @@ def build_pdf_liste(df, opts, qr_url=None):
         draw_circle(
             c,
             margin_left + sum(col_widths) - col_widths[-1] / 2,
-            y - 1,
+            y + 5,
             4,
             stat,
         )
@@ -423,7 +423,7 @@ def build_pdf_liste(df, opts, qr_url=None):
                     y = page_h - 60
 
                 urg = get_urgence_color(row, opts)
-                draw_circle(c, margin_left + 5, y + 1, 4, urg)
+                draw_circle(c, margin_left + 5, y + 2, 4, urg)
 
                 c.setFillColor(colors.black)
                 c.setFont("Helvetica", 10)
@@ -432,7 +432,7 @@ def build_pdf_liste(df, opts, qr_url=None):
                 c.drawString(margin_left + 18, y, txt)
 
                 stat = COLOR_STATUT.get(row["statut"], "#F5EEDC")
-                draw_circle(c, margin_left + 300, y + 1, 4, stat)
+                draw_circle(c, margin_left + 300, y + 2, 4, stat)
 
                 y -= 16
 
