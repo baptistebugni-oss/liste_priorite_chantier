@@ -425,9 +425,10 @@ with st.expander("📅 Vue par semaine (ligne du temps)", expanded=False):
 
                     # Ajuster à l'horizon
                     if start < today:
-                        start = today
-                    if endw > end_date.date():
-                        endw = end_date.date()
+                    start = today
+                    if endw > end_date:
+                    endw = end_date
+
 
                     if start.month == endw.month:
                         range_str = f"du {start.day} au {endw.day} {mois_fr[start.month]} {year}"
