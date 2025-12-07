@@ -276,7 +276,7 @@ def build_pdf_liste(df, opts, qr_url=None):
             c.drawString(xx, ypos - 13, h)
             xx += w
 
-        return ypos - 25
+        return ypos - 30
 
     y = draw_header(y)
     c.setFont("Helvetica", 9)
