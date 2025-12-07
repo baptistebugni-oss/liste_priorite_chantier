@@ -239,8 +239,8 @@ def build_pdf_liste(df, opts, qr_url=None):
     # =========================
     # LÉGENDE
     # =========================
-    c.setFont("Helvetica-Bold", 12)
     c.setFillColor(colors.black)
+    c.setFont("Helvetica-Bold", 12)
     c.drawString(margin_left, y, "Légende :")
     y -= 15
 
@@ -254,20 +254,48 @@ def build_pdf_liste(df, opts, qr_url=None):
         ("#4CD964", "Terminé"),
     ]
 
-    for color_hex, text_label in legend_items:
+    for color_hex, label in legend_items:
         draw_circle(c, margin_left + 4, y - 3, 4, color_hex)
         c.setFillColor(colors.black)
-        c.drawString(margin_left + 15, y - 6, text_label)
+        c.drawString(margin_left + 15, y - 6, label)
         y -= 15
 
     y -= 20
 
-    # =========================
-    # TABLEAU PRINCIPAL
-    # =========================
-    col_widths = [22, 190, 60, 60, 70, 22]
+    # ===============================
+    # CALCUL AUTOMATIQUE DES COLONNES
+    # ===============================
     headers = ["", "Nom de l'affaire", "Code", "Date", "Statut", ""]
 
+    columns = [
+        [""] * len(df),
+        df["nom"].astype(str).tolist(),
+        df["ref"].astype(str).tolist(),
+        df["date"].dt.strftime("%d/%m/%Y").fillna("-").tolist(),
+        df["statut"].astype(str).tolist(),
+        [""] * len(df),
+    ]
+
+    c.setFont("Helvetica", 10)
+    max_widths = []
+
+    for header, col in zip(headers, columns):
+        header_w = c.stringWidth(header, "Helvetica-Bold", 10)
+        cell_w = max(c.stringWidth(str(x), "Helvetica", 9) for x in col)
+        max_widths.append(max(header_w, cell_w) + 12)
+
+    total_target = 22 + 190 + 60 + 60 + 70 + 22
+    sum_widths = sum(max_widths)
+
+    if sum_widths > total_target:
+        ratio = total_target / sum_widths
+        col_widths = [w * ratio for w in max_widths]
+    else:
+        col_widths = max_widths
+
+    # =========================
+    # TABLEAU
+    # =========================
     def draw_header(ypos):
         c.setFillColor(colors.HexColor("#EFEFEF"))
         c.rect(margin_left, ypos - 18, sum(col_widths), 18, fill=1)
@@ -280,47 +308,46 @@ def build_pdf_liste(df, opts, qr_url=None):
             c.drawString(xx, ypos - 12, h)
             xx += w
 
-        return ypos - 35  # marges améliorées
+        return ypos - 35
 
     y = draw_header(y)
     c.setFont("Helvetica", 9)
 
-    df_sorted = df.sort_values(by="date")
+    df_sorted = df.sort_values("date")
 
     for _, row in df_sorted.iterrows():
 
         if y < 80:
             c.showPage()
-            c.setFont("Helvetica", 10)
             y = page_h - 60
             y = draw_header(y)
             c.setFont("Helvetica", 9)
 
-        # --- Pastille urgence (gauche)
-        urg_hex = get_urgence_color(row, opts)
+        # Pastille urgence
+        urg = get_urgence_color(row, opts)
         draw_circle(
             c,
             margin_left + col_widths[0] / 2,
             y + 6,
             4,
-            urg_hex,
+            urg,
         )
 
-        # --- Pastille statut (droite)
-        stat_hex = COLOR_STATUT.get(row["statut"], "#F5EEDC")
+        # Pastille statut
+        stat = COLOR_STATUT.get(row["statut"], "#F5EEDC")
         draw_circle(
             c,
             margin_left + sum(col_widths) - col_widths[-1] / 2,
             y + 6,
             4,
-            stat_hex,
+            stat,
         )
 
-        # --- Texte
+        # Texte
         c.setFillColor(colors.black)
-        dstr = "-" if pd.isna(row["date"]) else row["date"].strftime("%d/%m/%Y")
+        dd = "-" if pd.isna(row["date"]) else row["date"].strftime("%d/%m/%Y")
 
-        values = ["", row["nom"], row["ref"], dstr, row["statut"], ""]
+        values = ["", row["nom"], row["ref"], dd, row["statut"], ""]
 
         xx = margin_left + 5
         for val, w in zip(values, col_widths):
@@ -330,7 +357,7 @@ def build_pdf_liste(df, opts, qr_url=None):
         y -= 18
 
     # ===============================
-    # SÉPARATEUR AVANT VUE PAR SEMAINE
+    # SÉPARATEUR
     # ===============================
     c.setStrokeColor(colors.HexColor("#BBBBBB"))
     c.setLineWidth(1)
@@ -363,54 +390,49 @@ def build_pdf_liste(df, opts, qr_url=None):
             9: "septembre", 10: "octobre", 11: "novembre", 12: "décembre"
         }
 
-        for (year, week), g in df_week.groupby(["year", "week"]):
+        for (year, week), grp in df_week.groupby(["year", "week"]):
 
             if y < 120:
                 c.showPage()
-                c.setFont("Helvetica", 12)
                 y = page_h - 60
+                c.setFont("Helvetica-Bold", 14)
                 c.setFillColor(colors.black)
+                c.drawString(margin_left, y, "📅 Vue par semaine")
+                y -= 25
 
-            start = date.fromisocalendar(int(year), int(week), 1)
-            endw = date.fromisocalendar(int(year), int(week), 7)
+            start = date.fromisocalendar(year, week, 1)
+            end = date.fromisocalendar(year, week, 7)
 
-            if start.month == endw.month:
-                peri = f"du {start.day} au {endw.day} {mois_fr[start.month]} {year}"
+            if start.month == end.month:
+                peri = f"du {start.day} au {end.day} {mois_fr[start.month]} {year}"
             else:
                 peri = (
                     f"du {start.day} {mois_fr[start.month]} "
-                    f"au {endw.day} {mois_fr[endw.month]} {year}"
+                    f"au {end.day} {mois_fr[end.month]} {year}"
                 )
 
-            # --- Titre semaine
             c.setFont("Helvetica-Bold", 12)
             c.setFillColor(colors.black)
-            c.drawString(margin_left, y, f"Semaine {int(week):02d} — {peri}")
+            c.drawString(margin_left, y, f"Semaine {week:02d} — {peri}")
             y -= 18
 
-            # --- Lignes des chantiers
-            for _, row in g.iterrows():
+            for _, row in grp.iterrows():
 
                 if y < 100:
                     c.showPage()
-                    c.setFont("Helvetica", 12)
                     y = page_h - 60
-                    c.setFillColor(colors.black)
 
-                # Pastille urgence
-                urg_hex = get_urgence_color(row, opts)
-                draw_circle(c, margin_left + 5, y + 1, 4, urg_hex)
+                urg = get_urgence_color(row, opts)
+                draw_circle(c, margin_left + 5, y + 1, 4, urg)
 
-                # Texte
-                c.setFont("Helvetica", 10)
                 c.setFillColor(colors.black)
+                c.setFont("Helvetica", 10)
                 dstr = row["date"].strftime("%d/%m")
                 txt = f"{dstr} — {row['nom']} ({row['ref']})"
                 c.drawString(margin_left + 18, y, txt)
 
-                # Pastille statut
-                stat_hex = COLOR_STATUT.get(row["statut"], "#F5EEDC")
-                draw_circle(c, margin_left + 300, y + 1, 4, stat_hex)
+                stat = COLOR_STATUT.get(row["statut"], "#F5EEDC")
+                draw_circle(c, margin_left + 300, y + 1, 4, stat)
 
                 y -= 16
 
