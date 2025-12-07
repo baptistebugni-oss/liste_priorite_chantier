@@ -223,7 +223,7 @@ def build_pdf_liste(df, opts, qr_url=None):
 
     # ===== EN-TÊTE =====
     c.setFillColor(colors.HexColor("#2F3C7E"))
-    c.rect(0, page_h - 50, page_w, 70, fill=1)
+    c.rect(0, page_h - 200, page_w, 70, fill=1)
 
     c.setFillColor(colors.white)
     c.setFont("Helvetica-Bold", 24)
