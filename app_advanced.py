@@ -427,8 +427,33 @@ def build_pdf_liste(df, opts, qr_url=None):
 
                 c.setFillColor(colors.black)
                 c.setFont("Helvetica", 10)
-                dstr = row["date"].strftime("%d/%m")
-                txt = f"{dstr} — {row['nom']} ({row['ref']})"
+               
+        # ======= DATE FRANÇAISE LONGUE =======
+        jours_fr = {
+            0: "Lundi",
+            1: "Mardi",
+            2: "Mercredi",
+            3: "Jeudi",
+            4: "Vendredi",
+            5: "Samedi",
+            6: "Dimanche"
+}
+
+mois_fr_long = {
+    1: "Janvier", 2: "Février", 3: "Mars", 4: "Avril",
+    5: "Mai", 6: "Juin", 7: "Juillet", 8: "Août",
+    9: "Septembre", 10: "Octobre", 11: "Novembre", 12: "Décembre"
+}
+
+d = row["date"]
+
+jour_txt = jours_fr[d.weekday()]
+mois_txt = mois_fr_long[d.month]
+
+date_longue = f"{jour_txt} {d.day:02d} {mois_txt}"
+
+txt = f"{date_longue} — {row['nom']} ({row['ref']})"
+
                 c.drawString(margin_left + 18, y, txt)
 
                 stat = COLOR_STATUT.get(row["statut"], "#F5EEDC")
