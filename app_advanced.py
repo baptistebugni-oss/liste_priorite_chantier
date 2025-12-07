@@ -4,10 +4,9 @@ import json
 import os
 from datetime import datetime, date, timedelta
 from io import BytesIO
-import calendar
 
-from reportlab.lib.pagesizes import A4
 from reportlab.pdfgen import canvas
+from reportlab.lib.pagesizes import A4
 from reportlab.lib import colors
 from reportlab.lib.units import mm
 from reportlab.lib.utils import ImageReader
@@ -15,7 +14,7 @@ import qrcode
 
 
 # ==============================
-# CONFIGURATION
+# CONFIG
 # ==============================
 
 DATA_FILE = "chantiers.json"
@@ -23,19 +22,19 @@ OPTIONS_FILE = "options.json"
 ADMIN_PASSWORD = "admin123"
 
 DEFAULT_OPTIONS = {
-    "rouge": 2,       # seuil en jours pour urgence rouge
-    "orange": 7,      # seuil en jours pour urgence orange
-    "jaune": 14,      # seuil en jours pour urgence jaune
-    "show_qr": True,  # afficher un QR-code dans le PDF de liste
-    "horizon": 60,    # horizon de la vue "par semaine" en jours
-    "qr_url": "",     # URL utilisée pour le QR-code
+    "rouge": 2,
+    "orange": 7,
+    "jaune": 14,
+    "show_qr": True,
+    "horizon": 60,
+    "qr_url": "",
 }
 
 COLUMNS = ["nom", "ref", "date", "commentaire", "statut", "priorite"]
 
 
 # ==============================
-# OUTILS DONNÉES
+# DONNÉES
 # ==============================
 
 def ensure_columns(df, cols):
@@ -96,7 +95,7 @@ def sauvegarder_options(opts):
 
 
 # ==============================
-# COULEURS / ÉMOTICÔNES
+# URGENCE / STATUT
 # ==============================
 
 def get_urgence_color(row, opts):
@@ -106,11 +105,11 @@ def get_urgence_color(row, opts):
 
     delta = (d.date() - date.today()).days
     if delta <= opts["rouge"]:
-        return "#FF4B4B"
+        return "#FF4B4B"   # rouge vif
     if delta <= opts["orange"]:
-        return "#FFA500"
+        return "#FFA500"   # orange vif
     if delta <= opts["jaune"]:
-        return "#FFD966"
+        return "#FFD966"   # jaune vif
     return "#DDDDDD"
 
 
@@ -138,7 +137,7 @@ def statut_emoji(statut):
 
 
 # ==============================
-# IMPORT EXCEL (Montage uniquement, sélection unitaire)
+# IMPORT EXCEL (Montage)
 # ==============================
 
 def importer_excel(file):
@@ -180,7 +179,7 @@ def build_excel(df):
 
 
 # ==============================
-# EXPORT PDF — LISTE DES CHANTIERS
+# EXPORT PDF LISTE (avec couleurs)
 # ==============================
 
 def build_pdf_liste(df, opts, qr_url=None):
@@ -195,7 +194,6 @@ def build_pdf_liste(df, opts, qr_url=None):
     c.setFillColor(colors.white)
     c.drawCentredString(w / 2, h - 35, "Gestion Projet Priorités")
     c.setFont("Helvetica", 10)
-    c.setFillColor(colors.white)
     c.drawString(40, h - 52, f"Export du {datetime.now().strftime('%d/%m/%Y %H:%M')}")
 
     # Légende
@@ -210,9 +208,9 @@ def build_pdf_liste(df, opts, qr_url=None):
         ("#FFA500", f"Urgence moyenne ≤ {opts['orange']} j"),
         ("#FFD966", f"Approche ≤ {opts['jaune']} j"),
         ("#F5EEDC", "Prévu"),
-        ("#D9C8FF", "En cours"),
-        ("#FFD6E7", "En attente"),
-        ("#D9F8C4", "Terminé"),
+        ("#A066FF", "En cours"),
+        ("#FF80B5", "En attente"),
+        ("#4CD964", "Terminé"),
     ]
 
     c.setFont("Helvetica", 10)
@@ -223,9 +221,10 @@ def build_pdf_liste(df, opts, qr_url=None):
         c.drawString(55, y - 4, label)
         y -= 16
 
-    y -= 20
+    y -= 20  # espace avant le tableau
 
-    col_w = [30, 200, 60, 60, 70, 40]
+    # Tableau
+    col_w = [30, 200, 60, 60, 70, 40]  # Urg / Nom / Code / Date / Statut / État
     headers = ["Urg.", "Nom", "Code", "Date", "Statut", "État"]
 
     def draw_header(yy):
@@ -237,21 +236,48 @@ def build_pdf_liste(df, opts, qr_url=None):
         for i, htxt in enumerate(headers):
             c.drawString(x, yy - 13, htxt)
             x += col_w[i]
-        return yy - 22
+        return yy - 22  # nouvelle position y
 
+    # on descend encore un peu pour être sûr de ne pas manger la légende
     y = draw_header(y)
+
     c.setFont("Helvetica", 9)
+
+    # couleurs de statut (fond colonne Statut)
+    statut_bg = {
+        "Prévu": "#F5EEDC",
+        "En cours": "#A066FF",
+        "En attente": "#FF80B5",
+        "Terminé": "#4CD964",
+    }
 
     for _, r in df.sort_values("date").iterrows():
         if y < 80:
+            # nouvelle page
             c.showPage()
             w, h = A4
-            y = h - 60
+            y = h - 80
             y = draw_header(y)
             c.setFont("Helvetica", 9)
 
         d = "-" if pd.isna(r["date"]) else r["date"].strftime("%d/%m/%Y")
 
+        # Couleur d'urgence pour Nom / Code / Date
+        urg_color = get_urgence_color(r, opts)
+        c.setFillColor(colors.HexColor(urg_color))
+        # zone Nom + Code + Date = col 1 + 2 + 3 (après Urg)
+        x_urg = 40 + col_w[0]
+        width_urg = col_w[1] + col_w[2] + col_w[3]
+        c.rect(x_urg, y - 12, width_urg, 12, fill=1, stroke=0)
+
+        # Couleur statut pour la colonne Statut
+        stat_col_hex = statut_bg.get(r["statut"], "#F5EEDC")
+        c.setFillColor(colors.HexColor(stat_col_hex))
+        x_stat = 40 + col_w[0] + col_w[1] + col_w[2] + col_w[3]
+        c.rect(x_stat, y - 12, col_w[4], 12, fill=1, stroke=0)
+
+        # Texte (noir par-dessus)
+        c.setFillColor(colors.black)
         vals = [
             urgence_emoji(r, opts),
             r["nom"],
@@ -260,13 +286,12 @@ def build_pdf_liste(df, opts, qr_url=None):
             r["statut"],
             statut_emoji(r["statut"]),
         ]
-
         x = 44
         for i, v in enumerate(vals):
             c.drawString(x, y, str(v))
             x += col_w[i]
 
-        y -= 18
+        y -= 16  # descente ligne suivante
 
     # QR-code éventuel
     if qr_url:
@@ -292,13 +317,12 @@ def build_pdf_liste(df, opts, qr_url=None):
 # ==============================
 
 def truncate_nom(text, length=30):
-    """Coupe le nom de l'affaire proprement pour éviter les débordements."""
     text = str(text)
     return text if len(text) <= length else text[:length] + "…"
 
 
 # =======================================================
-# INTERFACE PRINCIPALE STREAMLIT
+# INTERFACE STREAMLIT
 # =======================================================
 
 st.set_page_config(page_title="Gestion Priorité chantier", layout="wide")
@@ -371,7 +395,7 @@ else:
 
 
 # =============================
-# VUE PAR SEMAINE (LIGNE DU TEMPS)
+# VUE PAR SEMAINE
 # =============================
 
 with st.expander("📅 Vue par semaine (ligne du temps)", expanded=False):
@@ -402,7 +426,6 @@ with st.expander("📅 Vue par semaine (ligne du temps)", expanded=False):
 
                 df_week = df_week.sort_values("date")
 
-                # Noms des mois en français
                 mois_fr = {
                     1: "janvier",
                     2: "février",
@@ -419,17 +442,14 @@ with st.expander("📅 Vue par semaine (ligne du temps)", expanded=False):
                 }
 
                 for (year, week), g in df_week.groupby(["year", "week"]):
-                    # Début et fin de semaine ISO
                     start = date.fromisocalendar(int(year), int(week), 1)
                     endw = date.fromisocalendar(int(year), int(week), 7)
 
-                    # Ajuster à l'horizon
                     if start < today:
                         start = today
                     if endw > end_date:
                         endw = end_date
 
-                    # Plage en français
                     if start.month == endw.month:
                         range_str = f"du {start.day} au {endw.day} {mois_fr[start.month]} {year}"
                     else:
@@ -457,14 +477,12 @@ with st.expander("📅 Vue par semaine (ligne du temps)", expanded=False):
 
 
 # =======================================================
-# ADMINISTRATION
+# ADMIN
 # =======================================================
 
 if is_admin:
 
-    # ------------------------
     # IMPORT EXCEL
-    # ------------------------
     with st.expander("📥 Import Excel — Sélection unitaire", expanded=False):
         file = st.file_uploader("Importer un fichier Excel", type=["xlsx"], key="excel_file")
 
@@ -505,9 +523,7 @@ if is_admin:
                     st.success("Chantier ajouté !")
                     st.rerun()
 
-    # ------------------------
     # AJOUT MANUEL
-    # ------------------------
     with st.expander("➕ Ajouter manuellement un chantier", expanded=False):
 
         n_nom = st.text_input("Nom", key="m_nom")
@@ -533,9 +549,7 @@ if is_admin:
             st.success("Chantier ajouté")
             st.rerun()
 
-    # ------------------------
     # MODIFIER / SUPPRIMER
-    # ------------------------
     with st.expander("✏️ Modifier / Supprimer un chantier", expanded=False):
         if df.empty:
             st.info("Aucun chantier.")
@@ -585,9 +599,7 @@ if is_admin:
                 st.success("Supprimé !")
                 st.rerun()
 
-    # ------------------------
     # OPTIONS
-    # ------------------------
     with st.expander("⚙️ Options générales", expanded=False):
 
         o1 = st.number_input("Urgence rouge ≤ jours", value=opts["rouge"], min_value=0)
