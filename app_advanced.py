@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import json
 import os
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 from io import BytesIO
 import calendar
 
@@ -386,7 +386,7 @@ with st.expander("📅 Vue par semaine (ligne du temps)", expanded=False):
         else:
             horizon = opts.get("horizon", 60)
             today = date.today()
-            end_date = today + pd.Timedelta(days=horizon)
+            end_date = today + timedelta(days=horizon)
 
             df_week = df_week[
                 (df_week["date"].dt.date >= today) &
@@ -402,7 +402,7 @@ with st.expander("📅 Vue par semaine (ligne du temps)", expanded=False):
 
                 df_week = df_week.sort_values("date")
 
-                # Mapping des noms de mois en français
+                # Noms des mois en français
                 mois_fr = {
                     1: "janvier",
                     2: "février",
@@ -419,17 +419,17 @@ with st.expander("📅 Vue par semaine (ligne du temps)", expanded=False):
                 }
 
                 for (year, week), g in df_week.groupby(["year", "week"]):
-                    # Début et fin de semaine
-                    start = date.fromisocalendar(year, int(week), 1)
-                    endw = date.fromisocalendar(year, int(week), 7)
+                    # Début et fin de semaine ISO
+                    start = date.fromisocalendar(int(year), int(week), 1)
+                    endw = date.fromisocalendar(int(year), int(week), 7)
 
                     # Ajuster à l'horizon
                     if start < today:
-                    start = today
+                        start = today
                     if endw > end_date:
-                    endw = end_date
+                        endw = end_date
 
-
+                    # Plage en français
                     if start.month == endw.month:
                         range_str = f"du {start.day} au {endw.day} {mois_fr[start.month]} {year}"
                     else:
