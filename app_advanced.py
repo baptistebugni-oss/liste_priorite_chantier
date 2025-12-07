@@ -324,6 +324,90 @@ def build_pdf_liste(df, opts, qr_url=None):
 
         y -= 18  # espacement vertical
 
+
+        # ==============================
+    # SECTION : VUE PAR SEMAINE
+    # ==============================
+    
+    # Petit espace après le tableau principal
+    y -= 30
+    c.setFont("Helvetica-Bold", 14)
+    c.setFillColor(colors.black)
+    c.drawString(margin_left, y, "📅 Vue par semaine")
+    y -= 20
+
+    # Préparation des données
+    df_week = df[df["date"].notna()].copy()
+
+    if not df_week.empty:
+
+        iso = df_week["date"].dt.isocalendar()
+        df_week["week"] = iso.week
+        df_week["year"] = iso.year
+        df_week = df_week.sort_values("date")
+
+        mois_fr = {
+            1: "janvier", 2: "février", 3: "mars", 4: "avril",
+            5: "mai", 6: "juin", 7: "juillet", 8: "août",
+            9: "septembre", 10: "octobre", 11: "novembre", 12: "décembre"
+        }
+
+        for (year, week), g in df_week.groupby(["year", "week"]):
+
+            # Nouveau bloc semaine
+            if y < 120:
+                c.showPage()
+                c.setFont("Helvetica", 12)
+                y = page_h - 60
+
+            # Calcul période
+            start = date.fromisocalendar(int(year), int(week), 1)
+            endw = date.fromisocalendar(int(year), int(week), 7)
+
+            if start.month == endw.month:
+                peri = f"du {start.day} au {endw.day} {mois_fr[start.month]} {year}"
+            else:
+                peri = (
+                    f"du {start.day} {mois_fr[start.month]} "
+                    f"au {endw.day} {mois_fr[endw.month]} {year}"
+                )
+
+            # Titre semaine
+            c.setFont("Helvetica-Bold", 12)
+            c.setFillColor(colors.black)
+            c.drawString(margin_left, y, f"Semaine {int(week):02d} — {peri}")
+            y -= 18
+
+            # Affichage lignes
+            for _, row in g.iterrows():
+
+                if y < 100:
+                    c.showPage()
+                    c.setFont("Helvetica", 12)
+                    y = page_h - 60
+
+                # Pastille urgence
+                urg_hex = get_urgence_color(row, opts)
+                draw_circle(c, margin_left + 5, y - 4, 4, urg_hex)
+
+                c.setFont("Helvetica", 10)
+                c.setFillColor(colors.black)
+
+                dstr = row["date"].strftime("%d/%m")
+                txt = f"{dstr} — {row['nom']} ({row['ref']})"
+                c.drawString(margin_left + 18, y, txt)
+
+                # Pastille statut
+                stat_hex = COLOR_STATUT.get(row["statut"], "#F5EEDC")
+                draw_circle(c, margin_left + 300, y - 4, 4, stat_hex)
+
+                y -= 16
+
+    else:
+        c.setFont("Helvetica", 10)
+        c.drawString(margin_left, y, "Aucune date disponible pour afficher la vue par semaine.")
+        y -= 20
+
     # ===== QR CODE =====
     if opts.get("show_qr") and qr_url:
         qr = qrcode.QRCode(box_size=2, border=1)
