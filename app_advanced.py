@@ -453,8 +453,24 @@ def build_pdf_liste(df, opts, qr_url=None):
                 date_longue = f"{jour_txt} {d.day:02d} {mois_txt}"
 
                 txt = f"{date_longue} — {row['nom']} ({row['ref']})"
-                c.drawString(margin_left + 18, y, txt)
+                
+                # Limite de largeur avant la pastille statut
+                max_text_width = 300 - 40  # point fixe avant la pastille, marge de sécurité
 
+                # Mesure de la largeur du texte
+                text_width = c.stringWidth(txt, "Helvetica", 10)
+
+                # Si le texte dépasse, on le coupe proprement et ajoute "..."
+                if text_width > max_text_width:
+                    cutoff = len(txt)
+                    while c.stringWidth(txt[:cutoff] + "…", "Helvetica", 10) > max_text_width and cutoff > 10:
+                        cutoff -= 1
+                    txt_to_print = txt[:cutoff] + "…"
+                else:
+                    txt_to_print = txt
+
+                # Impression du texte sécurisé
+                c.drawString(margin_left + 18, y, txt_to_print)
 
                 stat = COLOR_STATUT.get(row["statut"], "#F5EEDC")
                 draw_circle(c, margin_left + 300, y + 2, 4, stat)
