@@ -421,6 +421,81 @@ else:
     st.dataframe(disp, use_container_width=True)
 
 
+# =============================
+# 📅 VUE PAR SEMAINE (TIMELINE)
+# =============================
+with st.expander("📅 Vue par semaine (ligne du temps)", expanded=False):
+
+    df_week = df.copy()
+    df_week = df_week[df_week["date"].notna()]
+
+    if df_week.empty:
+        st.info("Aucun chantier avec une date valide.")
+    else:
+        horizon = opts.get("horizon", 60)
+        today = date.today()
+        end_date = today + timedelta(days=horizon)
+
+        # Filtrer l'horizon
+        df_week = df_week[
+            (df_week["date"].dt.date >= today) &
+            (df_week["date"].dt.date <= end_date)
+        ]
+
+        if df_week.empty:
+            st.warning("Aucun chantier dans l’horizon sélectionné.")
+        else:
+            # Extraire semaine + année
+            iso = df_week["date"].dt.isocalendar()
+            df_week["week"] = iso.week
+            df_week["year"] = iso.year
+
+            df_week = df_week.sort_values("date")
+
+            # Mois en français
+            mois_fr = {
+                1: "janvier", 2: "février", 3: "mars", 4: "avril",
+                5: "mai", 6: "juin", 7: "juillet", 8: "août",
+                9: "septembre", 10: "octobre", 11: "novembre", 12: "décembre"
+            }
+
+            # Affichage par semaine
+            for (year, week), g in df_week.groupby(["year", "week"]):
+
+                start = date.fromisocalendar(int(year), int(week), 1)
+                endw = date.fromisocalendar(int(year), int(week), 7)
+
+                # Contraintes horizon
+                if start < today:
+                    start = today
+                if endw > end_date:
+                    endw = end_date
+
+                # Texte de période
+                if start.month == endw.month:
+                    peri = f"du {start.day} au {endw.day} {mois_fr[start.month]} {year}"
+                else:
+                    peri = (
+                        f"du {start.day} {mois_fr[start.month]} "
+                        f"au {endw.day} {mois_fr[endw.month]} {year}"
+                    )
+
+                st.markdown(f"### 🗓️ Semaine {int(week):02d} — {peri}")
+
+                # Affichage des chantiers
+                for _, row in g.iterrows():
+                    urg = urgence_emoji(row, opts)
+                    stat = statut_emoji(row["statut"])
+                    dstr = row["date"].strftime("%d/%m")
+                    nom = truncate_nom(row["nom"], 40)
+
+                    c1, c2, c3, c4 = st.columns([1, 2, 6, 3])
+                    c1.write(urg)
+                    c2.write(dstr)
+                    c3.write(f"{nom} ({row['ref']})")
+                    c4.write(f"{stat} {row['statut']}")
+
+
 # =======================================================
 # ADMINISTRATION
 # =======================================================
