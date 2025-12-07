@@ -325,7 +325,23 @@ def build_pdf_liste(df, opts, qr_url=None):
         y -= 18  # espacement vertical
 
 
-        # ==============================
+    # =====================================
+    # SECTION : VUE PAR SEMAINE (PROPRE)
+    # =====================================
+
+    # Séparateur élégant
+    c.setStrokeColor(colors.HexColor("#999999"))
+    c.setLineWidth(0.8)
+    c.line(margin_left, y + 10, page_w - margin_left, y + 10)
+    y -= 20
+
+    c.setFont("Helvetica-Bold", 14)
+    c.setFillColor(colors.black)
+    c.drawString(margin_left, y, "📅 Vue par semaine")
+    y -= 20
+
+
+    # ==============================
     # SECTION : VUE PAR SEMAINE
     # ==============================
     
