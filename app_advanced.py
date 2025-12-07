@@ -232,7 +232,6 @@ def build_pdf_liste(df, opts, qr_url=None):
     c.setFont("Helvetica", 10)
     c.drawString(20, page_h - 60, f"Export du {datetime.now().strftime('%d/%m/%Y %H:%M')}")
 
-    # Position de départ sous l'en-tête
     y = page_h - 110
 
     # ===== LÉGENDE =====
@@ -257,10 +256,9 @@ def build_pdf_liste(df, opts, qr_url=None):
         c.drawString(margin_left + 15, y - 6, text_label)
         y -= 15
 
-    y -= 20  # espace avant tableau
+    y -= 20
 
     # ===== TABLEAU =====
-    # pastille urgence | Nom | Code | Date | Statut | pastille statut
     col_widths = [22, 190, 60, 60, 70, 22]
     headers = ["", "Nom de l'affaire", "Code", "Date", "Statut", ""]
 
@@ -276,7 +274,7 @@ def build_pdf_liste(df, opts, qr_url=None):
             c.drawString(xx, ypos - 13, h)
             xx += w
 
-        return ypos - 30
+        return ypos - 35  # marge augmentée
 
     y = draw_header(y)
     c.setFont("Helvetica", 9)
@@ -284,7 +282,6 @@ def build_pdf_liste(df, opts, qr_url=None):
     df_sorted = df.sort_values(by="date")
 
     for _, row in df_sorted.iterrows():
-        # Nouvelle page si on arrive en bas
         if y < 80:
             c.showPage()
             c.setFont("Helvetica", 10)
@@ -292,27 +289,24 @@ def build_pdf_liste(df, opts, qr_url=None):
             y = draw_header(y)
             c.setFont("Helvetica", 9)
 
-        # --- Couleur urgence (pastille gauche) ---
         urg_hex = get_urgence_color(row, opts)
         draw_circle(
             c,
             margin_left + col_widths[0] / 2,
-            y + 2,
+            y + 6,  # correction
             4,
             urg_hex
         )
 
-        # --- Couleur statut (pastille droite) ---
         stat_hex = COLOR_STATUT.get(row["statut"], "#F5EEDC")
         draw_circle(
             c,
             margin_left + sum(col_widths) - col_widths[-1] / 2,
-            y + 2,
+            y + 6,  # correction
             4,
             stat_hex
         )
 
-        # --- Texte dans Nom / Code / Date / Statut ---
         dstr = "-" if pd.isna(row["date"]) else row["date"].strftime("%d/%m/%Y")
         values = ["", row["nom"], row["ref"], dstr, row["statut"], ""]
 
@@ -322,37 +316,19 @@ def build_pdf_liste(df, opts, qr_url=None):
             c.drawString(xx, y, str(val))
             xx += w
 
-        y -= 18  # espacement vertical
+        y -= 18
 
-
-    # =====================================
-    # SECTION : VUE PAR SEMAINE (PROPRE)
-    # =====================================
-
-    # Séparateur élégant
-    c.setStrokeColor(colors.HexColor("#999999"))
-    c.setLineWidth(0.8)
-    c.line(margin_left, y + 10, page_w - margin_left, y + 10)
-    y -= 20
+    # ===== SÉPARATEUR AVANT VUE PAR SEMAINE =====
+    c.setStrokeColor(colors.HexColor("#CCCCCC"))
+    c.setLineWidth(1)
+    c.line(margin_left, y + 12, page_w - margin_left, y + 12)
+    y -= 35
 
     c.setFont("Helvetica-Bold", 14)
-    c.setFillColor(colors.black)
     c.drawString(margin_left, y, "📅 Vue par semaine")
-    y -= 20
+    y -= 25
 
-
-    # ==============================
-    # SECTION : VUE PAR SEMAINE
-    # ==============================
-    
-    # Petit espace après le tableau principal
-    y -= 30
-    c.setFont("Helvetica-Bold", 14)
-    c.setFillColor(colors.black)
-    c.drawString(margin_left, y, "📅 Vue par semaine")
-    y -= 20
-
-    # Préparation des données
+    # ===== VUE PAR SEMAINE =====
     df_week = df[df["date"].notna()].copy()
 
     if not df_week.empty:
@@ -370,13 +346,11 @@ def build_pdf_liste(df, opts, qr_url=None):
 
         for (year, week), g in df_week.groupby(["year", "week"]):
 
-            # Nouveau bloc semaine
             if y < 120:
                 c.showPage()
                 c.setFont("Helvetica", 12)
                 y = page_h - 60
 
-            # Calcul période
             start = date.fromisocalendar(int(year), int(week), 1)
             endw = date.fromisocalendar(int(year), int(week), 7)
 
@@ -388,13 +362,10 @@ def build_pdf_liste(df, opts, qr_url=None):
                     f"au {endw.day} {mois_fr[endw.month]} {year}"
                 )
 
-            # Titre semaine
             c.setFont("Helvetica-Bold", 12)
-            c.setFillColor(colors.black)
             c.drawString(margin_left, y, f"Semaine {int(week):02d} — {peri}")
             y -= 18
 
-            # Affichage lignes
             for _, row in g.iterrows():
 
                 if y < 100:
@@ -402,20 +373,16 @@ def build_pdf_liste(df, opts, qr_url=None):
                     c.setFont("Helvetica", 12)
                     y = page_h - 60
 
-                # Pastille urgence
                 urg_hex = get_urgence_color(row, opts)
-                draw_circle(c, margin_left + 5, y - 1, 4, urg_hex)
+                draw_circle(c, margin_left + 5, y + 1, 4, urg_hex)
 
                 c.setFont("Helvetica", 10)
-                c.setFillColor(colors.black)
-
                 dstr = row["date"].strftime("%d/%m")
                 txt = f"{dstr} — {row['nom']} ({row['ref']})"
                 c.drawString(margin_left + 18, y, txt)
 
-                # Pastille statut
                 stat_hex = COLOR_STATUT.get(row["statut"], "#F5EEDC")
-                draw_circle(c, margin_left + 300, y - 1, 4, stat_hex)
+                draw_circle(c, margin_left + 300, y + 1, 4, stat_hex)
 
                 y -= 16
 
@@ -424,27 +391,7 @@ def build_pdf_liste(df, opts, qr_url=None):
         c.drawString(margin_left, y, "Aucune date disponible pour afficher la vue par semaine.")
         y -= 20
 
-    # ===== QR CODE =====
-    if opts.get("show_qr") and qr_url:
-        qr = qrcode.QRCode(box_size=2, border=1)
-        qr.add_data(qr_url)
-        qr.make()
-        qr_img = qr.make_image()
-        qr_buf = BytesIO()
-        qr_img.save(qr_buf, format="PNG")
-        qr_buf.seek(0)
-
-        c.drawImage(
-            ImageReader(qr_buf),
-            page_w - 40 * mm,
-            15 * mm,
-            width=25 * mm,
-            preserveAspectRatio=True
-        )
-
-        c.setFont("Helvetica", 9)
-        c.drawRightString(page_w - 10 * mm, 13 * mm, "Accès Application")
-
+    c.showPage()
     c.save()
     buf.seek(0)
     return buf
