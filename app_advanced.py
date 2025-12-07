@@ -6,8 +6,6 @@ from datetime import datetime, date
 from io import BytesIO
 import calendar
 
-import matplotlib.pyplot as plt
-
 from reportlab.lib.pagesizes import A4
 from reportlab.pdfgen import canvas
 from reportlab.lib import colors
@@ -29,7 +27,7 @@ DEFAULT_OPTIONS = {
     "orange": 7,      # seuil en jours pour urgence orange
     "jaune": 14,      # seuil en jours pour urgence jaune
     "show_qr": True,  # afficher un QR-code dans le PDF de liste
-    "horizon": 60,    # horizon de calendrier en jours
+    "horizon": 60,    # horizon de la vue "par semaine" en jours
     "qr_url": "",     # URL utilisée pour le QR-code
 }
 
@@ -197,6 +195,7 @@ def build_pdf_liste(df, opts, qr_url=None):
     c.setFillColor(colors.white)
     c.drawCentredString(w / 2, h - 35, "Gestion Projet Priorités")
     c.setFont("Helvetica", 10)
+    c.setFillColor(colors.white)
     c.drawString(40, h - 52, f"Export du {datetime.now().strftime('%d/%m/%Y %H:%M')}")
 
     # Légende
@@ -289,105 +288,13 @@ def build_pdf_liste(df, opts, qr_url=None):
 
 
 # ==============================
-# CALENDRIER — FIGURE MATPLOTLIB
+# UTILITAIRE TEXTE
 # ==============================
 
-def truncate(text, length=14):
+def truncate_nom(text, length=30):
     """Coupe le nom de l'affaire proprement pour éviter les débordements."""
     text = str(text)
     return text if len(text) <= length else text[:length] + "…"
-
-
-def build_calendar_figure(df, opts):
-    """Construit la figure matplotlib du calendrier à partir d'un DataFrame complet df."""
-    df_cal = df.copy()
-    df_cal = df_cal[df_cal["date"].notna()]
-
-    if df_cal.empty:
-        return None
-
-    horizon = opts.get("horizon", 60)
-    today = date.today()
-    end_date = today + pd.Timedelta(days=horizon)
-
-    df_cal = df_cal[
-        (df_cal["date"].dt.date >= today) &
-        (df_cal["date"].dt.date <= end_date)
-    ]
-
-    if df_cal.empty:
-        return None
-
-    df_cal["jour"] = df_cal["date"].dt.day
-    df_cal["mois_num"] = df_cal["date"].dt.month
-    df_cal["annee"] = df_cal["date"].dt.year
-
-    df_cal["mois_label"] = df_cal.apply(
-        lambda r: f"{calendar.month_name[r['mois_num']]} {r['annee']}",
-        axis=1
-    )
-
-    mois_uniques = df_cal["mois_label"].unique().tolist()
-
-    statut_colors = {
-        "Prévu": "#B39B6B",
-        "En cours": "#7F3FBF",
-        "En attente": "#E75480",
-        "Terminé": "#2E8B57",
-    }
-
-    fig, ax = plt.subplots(figsize=(10, 14))
-    offsets = {}
-
-    for _, r in df_cal.iterrows():
-        x = mois_uniques.index(r["mois_label"])
-        y = int(r["jour"])
-
-        key = (x, y)
-        offset = offsets.get(key, 0)
-        offsets[key] = offset + 1
-
-        y_text = y - (offset * 0.22)
-
-        color = statut_colors.get(r["statut"], "black")
-
-        ax.text(
-            x,
-            y_text,
-            truncate(r["nom"], 14),
-            ha="center",
-            va="center",
-            fontsize=8,
-            color=color
-        )
-
-    ax.set_xticks(range(len(mois_uniques)))
-    ax.set_xticklabels(mois_uniques, rotation=30, ha="right")
-
-    ax.set_yticks(range(1, 32))
-    ax.set_ylim(32, 0)
-    ax.set_ylabel("Jour du mois")
-    ax.set_xlabel("Mois")
-
-    ax.grid(True, linestyle="--", linewidth=0.3, alpha=0.5)
-
-    ax.set_title(f"Chantiers sur {horizon} jours à partir d'aujourd'hui")
-
-    plt.tight_layout()
-    return fig
-
-
-def build_calendar_pdf(df, opts):
-    """Construit un PDF du calendrier via matplotlib."""
-    fig = build_calendar_figure(df, opts)
-    if fig is None:
-        return None
-
-    buf = BytesIO()
-    fig.savefig(buf, format="pdf", bbox_inches="tight")
-    plt.close(fig)
-    buf.seek(0)
-    return buf
 
 
 # =======================================================
@@ -464,20 +371,88 @@ else:
 
 
 # =============================
-# CALENDRIER — EXPANDER
+# VUE PAR SEMAINE (LIGNE DU TEMPS)
 # =============================
 
-with st.expander("📆 Calendrier des chantiers", expanded=False):
-    st.markdown("### Calendrier des chantiers")
-
+with st.expander("📅 Vue par semaine (ligne du temps)", expanded=False):
     if df_filtered.empty:
-        st.info("Aucun chantier à afficher dans le calendrier.")
+        st.info("Aucun chantier à afficher.")
     else:
-        fig = build_calendar_figure(df_filtered, opts)
-        if fig is None:
-            st.info("Aucune date valide ou aucun chantier dans l'horizon défini.")
+        df_week = df_filtered.copy()
+        df_week = df_week[df_week["date"].notna()]
+
+        if df_week.empty:
+            st.info("Aucune date valide pour cette vue.")
         else:
-            st.pyplot(fig, use_container_width=True)
+            horizon = opts.get("horizon", 60)
+            today = date.today()
+            end_date = today + pd.Timedelta(days=horizon)
+
+            df_week = df_week[
+                (df_week["date"].dt.date >= today) &
+                (df_week["date"].dt.date <= end_date)
+            ]
+
+            if df_week.empty:
+                st.warning("Aucun chantier dans l'horizon défini.")
+            else:
+                iso = df_week["date"].dt.isocalendar()
+                df_week["week"] = iso.week
+                df_week["year"] = iso.year
+
+                df_week = df_week.sort_values("date")
+
+                # Mapping des noms de mois en français
+                mois_fr = {
+                    1: "janvier",
+                    2: "février",
+                    3: "mars",
+                    4: "avril",
+                    5: "mai",
+                    6: "juin",
+                    7: "juillet",
+                    8: "août",
+                    9: "septembre",
+                    10: "octobre",
+                    11: "novembre",
+                    12: "décembre",
+                }
+
+                for (year, week), g in df_week.groupby(["year", "week"]):
+                    # Début et fin de semaine
+                    start = date.fromisocalendar(year, int(week), 1)
+                    endw = date.fromisocalendar(year, int(week), 7)
+
+                    # Ajuster à l'horizon
+                    if start < today:
+                        start = today
+                    if endw > end_date.date():
+                        endw = end_date.date()
+
+                    if start.month == endw.month:
+                        range_str = f"du {start.day} au {endw.day} {mois_fr[start.month]} {year}"
+                    else:
+                        range_str = (
+                            f"du {start.day} {mois_fr[start.month]} "
+                            f"au {endw.day} {mois_fr[endw.month]} {year}"
+                        )
+
+                    st.markdown(
+                        f"**──── Semaine {int(week):02d} ({range_str}) ────**"
+                    )
+
+                    for _, row in g.iterrows():
+                        urg = urgence_emoji(row, opts)
+                        stat_e = statut_emoji(row["statut"])
+                        dstr = row["date"].strftime("%d/%m")
+                        nom_tr = truncate_nom(row["nom"], 35)
+                        ref = row["ref"]
+
+                        c1, c2, c3, c4 = st.columns([1, 2, 5, 3])
+                        c1.write(urg)
+                        c2.write(dstr)
+                        c3.write(f"{nom_tr} ({ref})")
+                        c4.write(f"{stat_e} {row['statut']}")
 
 
 # =======================================================
@@ -507,20 +482,20 @@ if is_admin:
                     key="excel_select",
                 )
 
-                row = imported.iloc[idx_choice]
+                row_imp = imported.iloc[idx_choice]
 
                 st.info(
-                    f"**Nom :** {row['nom']}\n\n"
-                    f"**Code :** {row['ref']}\n\n"
+                    f"**Nom :** {row_imp['nom']}\n\n"
+                    f"**Code :** {row_imp['ref']}\n\n"
                     f"**Date :** "
-                    f"{row['date'].strftime('%d/%m/%Y') if not pd.isna(row['date']) else '-'}"
+                    f"{row_imp['date'].strftime('%d/%m/%Y') if not pd.isna(row_imp['date']) else '-'}"
                 )
 
                 if st.button("➕ Ajouter ce chantier", key="excel_add"):
                     df.loc[len(df)] = [
-                        row["nom"],
-                        row["ref"],
-                        row["date"],
+                        row_imp["nom"],
+                        row_imp["ref"],
+                        row_imp["date"],
                         "",
                         "Prévu",
                         "",
@@ -571,22 +546,22 @@ if is_admin:
                 key="edit_select",
             )
 
-            row = df.loc[idx]
+            row_ed = df.loc[idx]
 
-            e_nom = st.text_input("Nom", row["nom"], key=f"e_nom_{idx}")
-            e_ref = st.text_input("Code", row["ref"], key=f"e_ref_{idx}")
+            e_nom = st.text_input("Nom", row_ed["nom"], key=f"e_nom_{idx}")
+            e_ref = st.text_input("Code", row_ed["ref"], key=f"e_ref_{idx}")
             e_date = st.date_input(
                 "Date",
-                row["date"].date() if not pd.isna(row["date"]) else date.today(),
+                row_ed["date"].date() if not pd.isna(row_ed["date"]) else date.today(),
                 key=f"e_date_{idx}",
             )
             e_statut = st.selectbox(
                 "Statut",
                 ["Prévu", "En cours", "En attente", "Terminé"],
-                index=["Prévu", "En cours", "En attente", "Terminé"].index(row["statut"]),
+                index=["Prévu", "En cours", "En attente", "Terminé"].index(row_ed["statut"]),
                 key=f"e_statut_{idx}",
             )
-            e_comment = st.text_area("Commentaire", row["commentaire"], key=f"e_comment_{idx}")
+            e_comment = st.text_area("Commentaire", row_ed["commentaire"], key=f"e_comment_{idx}")
 
             c1, c2 = st.columns(2)
 
@@ -619,7 +594,7 @@ if is_admin:
         o3 = st.number_input("Urgence jaune ≤ jours", value=opts["jaune"], min_value=0)
         o4 = st.checkbox("Afficher QR dans le PDF de liste", value=opts["show_qr"])
         o5 = st.number_input(
-            "Horizon calendrier (en jours)",
+            "Horizon vue 'par semaine' (en jours)",
             value=opts.get("horizon", 60),
             min_value=7,
             max_value=365,
@@ -647,7 +622,7 @@ if is_admin:
 
 st.markdown("---")
 
-col1, col2, col3 = st.columns(3)
+col1, col2 = st.columns(2)
 
 with col1:
     if st.button("📄 Export PDF (liste)", key="pdf_liste_btn"):
@@ -669,16 +644,3 @@ with col2:
             file_name=f"Chantiers_{date.today()}.xlsx",
             mime="application/vnd.ms-excel",
         )
-
-with col3:
-    if st.button("📄 Export PDF (calendrier)", key="pdf_cal_btn"):
-        pdf_cal = build_calendar_pdf(df, opts)
-        if pdf_cal is None:
-            st.warning("Impossible de générer le calendrier : aucune date dans l'horizon.")
-        else:
-            st.download_button(
-                "Télécharger PDF calendrier",
-                data=pdf_cal,
-                file_name=f"Calendrier_Chantiers_{date.today()}.pdf",
-                mime="application/pdf",
-            )
