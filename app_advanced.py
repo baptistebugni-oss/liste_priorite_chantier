@@ -297,7 +297,7 @@ def build_pdf_liste(df, opts, qr_url=None):
         draw_circle(
             c,
             margin_left + col_widths[0] / 2,
-            y - 1,
+            y + 1,
             4,
             urg_hex
         )
@@ -307,7 +307,7 @@ def build_pdf_liste(df, opts, qr_url=None):
         draw_circle(
             c,
             margin_left + sum(col_widths) - col_widths[-1] / 2,
-            y - 1,
+            y + 1,
             4,
             stat_hex
         )
