@@ -5,13 +5,13 @@ import os
 from datetime import datetime, date, timedelta
 from io import BytesIO
 
+# ==== PDF ====
 from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import A4
 from reportlab.lib import colors
 from reportlab.lib.units import mm
 from reportlab.lib.utils import ImageReader
 import qrcode
-
 
 # ==============================
 # CONFIG
@@ -32,9 +32,32 @@ DEFAULT_OPTIONS = {
 
 COLUMNS = ["nom", "ref", "date", "commentaire", "statut", "priorite"]
 
+# ==============================
+# PDF COLORS
+# ==============================
+
+COLOR_URGENCE = {
+    "rouge": "#FF4B4B",
+    "orange": "#FFA500",
+    "jaune": "#FFD966",
+    "normal": "#DDDDDD",
+}
+
+COLOR_STATUT = {
+    "Prévu": "#F5EEDC",
+    "En cours": "#A066FF",
+    "En attente": "#FF80B5",
+    "Terminé": "#4CD964",
+}
+
+# Pastille graphique
+def draw_circle(c, x, y, size, color_hex):
+    c.setFillColor(colors.HexColor(color_hex))
+    c.circle(x, y, size, fill=1, stroke=0)
+
 
 # ==============================
-# DONNÉES
+# OUTILS DONNÉES
 # ==============================
 
 def ensure_columns(df, cols):
@@ -95,7 +118,7 @@ def sauvegarder_options(opts):
 
 
 # ==============================
-# URGENCE / STATUT
+# URGENCE / STATUT LOGIQUE
 # ==============================
 
 def get_urgence_color(row, opts):
@@ -105,11 +128,11 @@ def get_urgence_color(row, opts):
 
     delta = (d.date() - date.today()).days
     if delta <= opts["rouge"]:
-        return "#FF4B4B"   # rouge vif
+        return "#FF4B4B"
     if delta <= opts["orange"]:
-        return "#FFA500"   # orange vif
+        return "#FFA500"
     if delta <= opts["jaune"]:
-        return "#FFD966"   # jaune vif
+        return "#FFD966"
     return "#DDDDDD"
 
 
@@ -179,140 +202,6 @@ def build_excel(df):
 
 
 # ==============================
-# EXPORT PDF LISTE (avec couleurs)
-# ==============================
-
-def build_pdf_liste(df, opts, qr_url=None):
-    buf = BytesIO()
-    c = canvas.Canvas(buf, pagesize=A4)
-    w, h = A4
-
-    # En-tête
-    c.setFillColor(colors.HexColor("#2F3C7E"))
-    c.rect(0, h - 60, w, 60, fill=1)
-    c.setFont("Helvetica-Bold", 24)
-    c.setFillColor(colors.white)
-    c.drawCentredString(w / 2, h - 35, "Gestion Projet Priorités")
-    c.setFont("Helvetica", 10)
-    c.drawString(40, h - 52, f"Export du {datetime.now().strftime('%d/%m/%Y %H:%M')}")
-
-    # Légende
-    y = h - 90
-    c.setFillColor(colors.black)
-    c.setFont("Helvetica-Bold", 12)
-    c.drawString(40, y, "Légende :")
-    y -= 20
-
-    legend = [
-        ("#FF4B4B", f"Urgence forte ≤ {opts['rouge']} j"),
-        ("#FFA500", f"Urgence moyenne ≤ {opts['orange']} j"),
-        ("#FFD966", f"Approche ≤ {opts['jaune']} j"),
-        ("#F5EEDC", "Prévu"),
-        ("#A066FF", "En cours"),
-        ("#FF80B5", "En attente"),
-        ("#4CD964", "Terminé"),
-    ]
-
-    c.setFont("Helvetica", 10)
-    for color_hex, label in legend:
-        c.setFillColor(colors.HexColor(color_hex))
-        c.rect(40, y - 8, 10, 10, fill=1, stroke=0)
-        c.setFillColor(colors.black)
-        c.drawString(55, y - 4, label)
-        y -= 16
-
-    y -= 20  # espace avant le tableau
-
-    # Tableau
-    col_w = [30, 200, 60, 60, 70, 40]  # Urg / Nom / Code / Date / Statut / État
-    headers = ["Urg.", "Nom", "Code", "Date", "Statut", "État"]
-
-    def draw_header(yy):
-        c.setFillColor(colors.HexColor("#EFEFEF"))
-        c.rect(40, yy - 18, sum(col_w), 18, fill=1)
-        c.setFillColor(colors.black)
-        c.setFont("Helvetica-Bold", 10)
-        x = 44
-        for i, htxt in enumerate(headers):
-            c.drawString(x, yy - 13, htxt)
-            x += col_w[i]
-        return yy - 22  # nouvelle position y
-
-    # on descend encore un peu pour être sûr de ne pas manger la légende
-    y = draw_header(y)
-
-    c.setFont("Helvetica", 9)
-
-    # couleurs de statut (fond colonne Statut)
-    statut_bg = {
-        "Prévu": "#F5EEDC",
-        "En cours": "#A066FF",
-        "En attente": "#FF80B5",
-        "Terminé": "#4CD964",
-    }
-
-    for _, r in df.sort_values("date").iterrows():
-        if y < 80:
-            # nouvelle page
-            c.showPage()
-            w, h = A4
-            y = h - 80
-            y = draw_header(y)
-            c.setFont("Helvetica", 9)
-
-        d = "-" if pd.isna(r["date"]) else r["date"].strftime("%d/%m/%Y")
-
-        # Couleur d'urgence pour Nom / Code / Date
-        urg_color = get_urgence_color(r, opts)
-        c.setFillColor(colors.HexColor(urg_color))
-        # zone Nom + Code + Date = col 1 + 2 + 3 (après Urg)
-        x_urg = 40 + col_w[0]
-        width_urg = col_w[1] + col_w[2] + col_w[3]
-        c.rect(x_urg, y - 12, width_urg, 12, fill=1, stroke=0)
-
-        # Couleur statut pour la colonne Statut
-        stat_col_hex = statut_bg.get(r["statut"], "#F5EEDC")
-        c.setFillColor(colors.HexColor(stat_col_hex))
-        x_stat = 40 + col_w[0] + col_w[1] + col_w[2] + col_w[3]
-        c.rect(x_stat, y - 12, col_w[4], 12, fill=1, stroke=0)
-
-        # Texte (noir par-dessus)
-        c.setFillColor(colors.black)
-        vals = [
-            urgence_emoji(r, opts),
-            r["nom"],
-            r["ref"],
-            d,
-            r["statut"],
-            statut_emoji(r["statut"]),
-        ]
-        x = 44
-        for i, v in enumerate(vals):
-            c.drawString(x, y, str(v))
-            x += col_w[i]
-
-        y -= 16  # descente ligne suivante
-
-    # QR-code éventuel
-    if qr_url:
-        qr = qrcode.QRCode(box_size=3, border=1)
-        qr.add_data(qr_url)
-        qr.make()
-        img = qr.make_image()
-        buf_qr = BytesIO()
-        img.save(buf_qr, format="PNG")
-        buf_qr.seek(0)
-        c.drawImage(ImageReader(buf_qr), w - 45 * mm, 20 * mm, width=30 * mm)
-        c.setFont("Helvetica", 9)
-        c.setFillColor(colors.black)
-        c.drawRightString(w - 10 * mm, 15 * mm, "Accès application")
-
-    c.save()
-    buf.seek(0)
-    return buf
-
-
-# ==============================
 # UTILITAIRE TEXTE
 # ==============================
 
@@ -321,8 +210,174 @@ def truncate_nom(text, length=30):
     return text if len(text) <= length else text[:length] + "…"
 
 
+# ==============================
+# PDF AVANCÉ — VERSION PROPRE & ALIGNÉE
+# ==============================
+
+def build_pdf_liste(df, opts, qr_url=None):
+    buf = BytesIO()
+    c = canvas.Canvas(buf, pagesize=A4)
+
+    page_w, page_h = A4
+    margin_left = 30
+    y = page_h - 40
+
+    # ===== EN-TÊTE =====
+    c.setFillColor(colors.HexColor("#2F3C7E"))
+    c.rect(0, page_h - 70, page_w, 70, fill=1)
+
+    c.setFillColor(colors.white)
+    c.setFont("Helvetica-Bold", 24)
+    c.drawCentredString(page_w / 2, page_h - 38, "Gestion Projet Priorités")
+
+    c.setFont("Helvetica", 10)
+    c.drawString(20, page_h - 60, f"Export du {datetime.now().strftime('%d/%m/%Y %H:%M')}")
+
+    # Position initiale sous l'en-tête
+    y = page_h - 110
+
+    # ===== LÉGENDE =====
+    c.setFont("Helvetica-Bold", 12)
+    c.setFillColor(colors.black)
+    c.drawString(margin_left, y, "Légende :")
+    y -= 15
+
+    legend_items = [
+        ("#FF4B4B", f"Urgence forte (≤ {opts['rouge']} j)"),
+        ("#FFA500", f"Urgence moyenne (≤ {opts['orange']} j)"),
+        ("#FFD966", f"Approche (≤ {opts['jaune']} j)"),
+        ("#F5EEDC", "Prévu"),
+        ("#A066FF", "En cours"),
+        ("#FF80B5", "En attente"),
+        ("#4CD964", "Terminé"),
+    ]
+
+    for color_hex, text_label in legend_items:
+        draw_circle(c, margin_left + 4, y - 4, 4, color_hex)
+        c.setFillColor(colors.black)
+        c.drawString(margin_left + 15, y - 6, text_label)
+        y -= 15
+
+    y -= 20  # espace avant tableau
+
+    # ===== TABLEAU =====
+    col_widths = [22, 180, 55, 55, 65, 22]  # cercle, nom, code, date, statut, cercle
+    headers = ["", "Nom de l'affaire", "Code", "Date", "Statut", ""]
+
+    def draw_header(ypos):
+        c.setFillColor(colors.HexColor("#EFEFEF"))
+        c.rect(margin_left, ypos - 18, sum(col_widths), 18, fill=1)
+
+        c.setFillColor(colors.black)
+        c.setFont("Helvetica-Bold", 10)
+
+        xx = margin_left + 5
+        for h, w in zip(headers, col_widths):
+            c.drawString(xx, ypos - 13, h)
+            xx += w
+
+        return ypos - 25
+
+    y = draw_header(y)
+
+    c.setFont("Helvetica", 9)
+
+    # Tri par date
+    df_sorted = df.sort_values(by="date")
+
+    # ===== LIGNES =====
+    for _, row in df_sorted.iterrows():
+
+        # Nouvelle page si manque de place
+        if y < 80:
+            c.showPage()
+            c.setFont("Helvetica", 10)
+            y = page_h - 60
+            y = draw_header(y)
+            c.setFont("Helvetica", 9)
+
+        # Couleur urgence pour fond (NAM + CODE + DATE)
+        urg_hex = get_urgence_color(row, opts)
+        c.setFillColor(colors.HexColor(urg_hex))
+        c.rect(
+            margin_left + col_widths[0],      # début zone
+            y - 12,
+            col_widths[1] + col_widths[2] + col_widths[3],  # largeur zone
+            12,
+            fill=1,
+            stroke=0,
+        )
+
+        # Couleur statut pour fond cellule "Statut"
+        stat_hex = COLOR_STATUT.get(row["statut"], "#F5EEDC")
+        c.setFillColor(colors.HexColor(stat_hex))
+        c.rect(
+            margin_left + col_widths[0] + col_widths[1] + col_widths[2] + col_widths[3],
+            y - 12,
+            col_widths[4],
+            12,
+            fill=1,
+            stroke=0,
+        )
+
+        # Pastille urgence (gauche)
+        draw_circle(
+            c,
+            margin_left + col_widths[0] / 2,
+            y - 6,
+            4,
+            urg_hex
+        )
+
+        # Pastille statut (droite)
+        draw_circle(
+            c,
+            margin_left + sum(col_widths) - col_widths[5] / 2,
+            y - 6,
+            4,
+            stat_hex
+        )
+
+        # Texte
+        dstr = "-" if pd.isna(row["date"]) else row["date"].strftime("%d/%m/%Y")
+        values = ["", row["nom"], row["ref"], dstr, row["statut"], ""]
+
+        xx = margin_left + 5
+        c.setFillColor(colors.black)
+        for val, w in zip(values, col_widths):
+            c.drawString(xx, y, str(val))
+            xx += w
+
+        y -= 18
+
+    # ===== QR CODE =====
+    if opts.get("show_qr") and qr_url:
+        qr = qrcode.QRCode(box_size=2, border=1)
+        qr.add_data(qr_url)
+        qr.make()
+        qr_img = qr.make_image()
+        qr_buf = BytesIO()
+        qr_img.save(qr_buf, format="PNG")
+        qr_buf.seek(0)
+
+        c.drawImage(
+            ImageReader(qr_buf),
+            page_w - 40 * mm,
+            15 * mm,
+            width=25 * mm,
+            preserveAspectRatio=True
+        )
+
+        c.setFont("Helvetica", 9)
+        c.drawRightString(page_w - 10 * mm, 13 * mm, "Accès Application")
+
+    c.save()
+    buf.seek(0)
+    return buf
+
+
 # =======================================================
-# INTERFACE STREAMLIT
+# INTERFACE STREAMLIT — CONFIG DE BASE
 # =======================================================
 
 st.set_page_config(page_title="Gestion Priorité chantier", layout="wide")
@@ -340,7 +395,6 @@ if mode == "Administrateur":
 
 df = charger_chantiers()
 opts = charger_options()
-
 
 # =============================
 # FILTRES
@@ -364,7 +418,6 @@ if f_ref:
     df_filtered = df_filtered[df_filtered["ref"].str.contains(f_ref, case=False, na=False)]
 if f_statut:
     df_filtered = df_filtered[df_filtered["statut"].isin(f_statut)]
-
 
 # =============================
 # TABLEAU PRINCIPAL
@@ -394,90 +447,8 @@ else:
     st.dataframe(disp, use_container_width=True)
 
 
-# =============================
-# VUE PAR SEMAINE
-# =============================
-
-with st.expander("📅 Vue par semaine (ligne du temps)", expanded=False):
-    if df_filtered.empty:
-        st.info("Aucun chantier à afficher.")
-    else:
-        df_week = df_filtered.copy()
-        df_week = df_week[df_week["date"].notna()]
-
-        if df_week.empty:
-            st.info("Aucune date valide pour cette vue.")
-        else:
-            horizon = opts.get("horizon", 60)
-            today = date.today()
-            end_date = today + timedelta(days=horizon)
-
-            df_week = df_week[
-                (df_week["date"].dt.date >= today) &
-                (df_week["date"].dt.date <= end_date)
-            ]
-
-            if df_week.empty:
-                st.warning("Aucun chantier dans l'horizon défini.")
-            else:
-                iso = df_week["date"].dt.isocalendar()
-                df_week["week"] = iso.week
-                df_week["year"] = iso.year
-
-                df_week = df_week.sort_values("date")
-
-                mois_fr = {
-                    1: "janvier",
-                    2: "février",
-                    3: "mars",
-                    4: "avril",
-                    5: "mai",
-                    6: "juin",
-                    7: "juillet",
-                    8: "août",
-                    9: "septembre",
-                    10: "octobre",
-                    11: "novembre",
-                    12: "décembre",
-                }
-
-                for (year, week), g in df_week.groupby(["year", "week"]):
-                    start = date.fromisocalendar(int(year), int(week), 1)
-                    endw = date.fromisocalendar(int(year), int(week), 7)
-
-                    if start < today:
-                        start = today
-                    if endw > end_date:
-                        endw = end_date
-
-                    if start.month == endw.month:
-                        range_str = f"du {start.day} au {endw.day} {mois_fr[start.month]} {year}"
-                    else:
-                        range_str = (
-                            f"du {start.day} {mois_fr[start.month]} "
-                            f"au {endw.day} {mois_fr[endw.month]} {year}"
-                        )
-
-                    st.markdown(
-                        f"**──── Semaine {int(week):02d} ({range_str}) ────**"
-                    )
-
-                    for _, row in g.iterrows():
-                        urg = urgence_emoji(row, opts)
-                        stat_e = statut_emoji(row["statut"])
-                        dstr = row["date"].strftime("%d/%m")
-                        nom_tr = truncate_nom(row["nom"], 35)
-                        ref = row["ref"]
-
-                        c1, c2, c3, c4 = st.columns([1, 2, 5, 3])
-                        c1.write(urg)
-                        c2.write(dstr)
-                        c3.write(f"{nom_tr} ({ref})")
-                        c4.write(f"{stat_e} {row['statut']}")
-
-
 # =======================================================
-# ADMIN
+# ADMINISTRATION
 # =======================================================
 
 if is_admin:
@@ -628,9 +599,8 @@ if is_admin:
             st.success("Options enregistrées !")
             st.rerun()
 
-
 # =======================================================
-# EXPORTS
+# EXPORTS (PDF + EXCEL)
 # =======================================================
 
 st.markdown("---")
@@ -639,8 +609,8 @@ col1, col2 = st.columns(2)
 
 with col1:
     if st.button("📄 Export PDF (liste)", key="pdf_liste_btn"):
-        qr_url = opts["qr_url"] if opts.get("show_qr") and opts.get("qr_url") else None
-        pdf = build_pdf_liste(df, opts, qr_url)
+        qr_url_for_pdf = opts.get("qr_url") if opts.get("show_qr") and opts.get("qr_url") else None
+        pdf = build_pdf_liste(df, opts, qr_url_for_pdf)
         st.download_button(
             "Télécharger PDF liste",
             data=pdf,
