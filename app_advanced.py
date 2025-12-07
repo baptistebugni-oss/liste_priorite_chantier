@@ -325,7 +325,7 @@ def build_pdf_liste(df, opts, qr_url=None):
     y -= 35
 
     c.setFont("Helvetica-Bold", 14)
-    c.drawString(margin_left, y, "📅 Vue par semaine")
+    c.drawString(margin_left, y, "� Vue par semaine")
     y -= 25
 
     # ===== VUE PAR SEMAINE =====
