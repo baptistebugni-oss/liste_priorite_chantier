@@ -388,7 +388,7 @@ def build_pdf_liste(df, opts, qr_url=None):
 
                 # Pastille urgence
                 urg_hex = get_urgence_color(row, opts)
-                draw_circle(c, margin_left + 5, y - 4, 4, urg_hex)
+                draw_circle(c, margin_left + 5, y - 1, 4, urg_hex)
 
                 c.setFont("Helvetica", 10)
                 c.setFillColor(colors.black)
@@ -399,7 +399,7 @@ def build_pdf_liste(df, opts, qr_url=None):
 
                 # Pastille statut
                 stat_hex = COLOR_STATUT.get(row["statut"], "#F5EEDC")
-                draw_circle(c, margin_left + 300, y - 4, 4, stat_hex)
+                draw_circle(c, margin_left + 300, y - 1, 4, stat_hex)
 
                 y -= 16
 
