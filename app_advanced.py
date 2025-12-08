@@ -1,4 +1,11 @@
 import streamlit as st
+
+st.set_page_config(
+    page_title="Gestion Projet Priorités",
+    page_icon="./icon.png",  # ← chemin correct pour Streamlit Cloud
+    layout="wide"
+)
+
 import pandas as pd
 import json
 import os
@@ -13,11 +20,6 @@ from reportlab.lib.units import mm
 from reportlab.lib.utils import ImageReader
 import qrcode
 
-st.set_page_config(
-    page_title="Gestion Projet Priorités",
-    page_icon="icon.png",   # ← Ton icône perso
-    layout="wide"
-)
 
 # ==============================
 # CONFIG
