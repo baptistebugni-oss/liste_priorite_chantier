@@ -1,11 +1,4 @@
 import streamlit as st
-
-st.set_page_config(
-    page_title="Gestion Projet Priorités",
-    page_icon="./icon.png",  # ← chemin correct pour Streamlit Cloud
-    layout="wide"
-)
-
 import pandas as pd
 import json
 import os
