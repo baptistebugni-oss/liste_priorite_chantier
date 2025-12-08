@@ -491,10 +491,48 @@ def build_pdf_liste(df, opts, qr_url=None):
         c.drawString(margin_left, y, "Aucune date disponible pour la vue par semaine.")
         y -= 20
 
-    c.showPage()
-    c.save()
-    buf.seek(0)
-    return buf
+    # ===============================
+    # QR-CODE (si activé)
+    # ===============================
+    if qr_url is not None and isinstance(qr_url, str) and qr_url.strip() != "":
+        try:
+            # Génération du QR en mémoire
+            qr_img = qrcode.make(qr_url)
+
+            qr_buf = BytesIO()
+            qr_img.save(qr_buf, format="PNG")
+            qr_buf.seek(0)
+
+            qr_reader = ImageReader(qr_buf)
+
+            # Position en bas à droite
+            qr_size = 28 * mm
+            qr_x = page_w - qr_size - 25
+            qr_y = 20
+
+            c.drawImage(
+                qr_reader,
+                qr_x,
+                qr_y,
+                width=qr_size,
+                height=qr_size,
+                preserveAspectRatio=True,
+                mask='auto'
+            )
+
+            # Petit texte sous le QR
+            c.setFont("Helvetica", 8)
+            c.setFillColor(colors.black)
+            c.drawCentredString(qr_x + qr_size / 2, qr_y - 10, "Accès mobile")
+
+        except Exception as e:
+            # Sécurité : éviter que l'export plante si QR impossible
+            print("Erreur QR-code PDF:", e)
+
+        c.showPage()
+        c.save()
+        buf.seek(0)
+        return buf
 
 
 # =======================================================
