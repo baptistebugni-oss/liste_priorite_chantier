@@ -5,6 +5,12 @@ import os
 from datetime import datetime, date, timedelta
 from io import BytesIO
 
+st.set_page_config(
+    page_title="Gestion Projet Priorités",
+    page_icon="icon.png",   # ← Ton icône perso
+    layout="wide"
+)
+
 # ==== PDF ====
 from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import A4
