@@ -7,9 +7,9 @@ from io import BytesIO
 
 st.set_page_config(
     page_title="Gestion Projet Priorités",
-    page_icon="https://github.com/baptistebugni-oss/liste_priorite_chantier/blob/main/icon.png",   # ← Ton icône perso
-    layout="wide"
+    page_icon="app_icon.ico",    
 )
+
 
 # ==== PDF ====
 from reportlab.pdfgen import canvas
