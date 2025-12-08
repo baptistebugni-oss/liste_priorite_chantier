@@ -10,6 +10,7 @@ st.set_page_config(
     page_icon="app_icon.ico",    
 )
 
+st.write("Icon exists:", os.path.exists("app_icon.ico"))
 
 # ==== PDF ====
 from reportlab.pdfgen import canvas
