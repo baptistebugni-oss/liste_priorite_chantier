@@ -7,7 +7,7 @@ from io import BytesIO
 
 st.set_page_config(
     page_title="Gestion Projet Priorités",
-    page_icon="icon.png",   # ← Ton icône perso
+    page_icon="https://github.com/baptistebugni-oss/liste_priorite_chantier/blob/main/icon.png",   # ← Ton icône perso
     layout="wide"
 )
 
