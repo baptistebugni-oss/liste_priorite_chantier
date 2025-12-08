@@ -13,6 +13,12 @@ from reportlab.lib.units import mm
 from reportlab.lib.utils import ImageReader
 import qrcode
 
+st.set_page_config(
+    page_title="Gestion Projet Priorités",
+    page_icon="icon.png",   # ← Ton icône perso
+    layout="wide"
+)
+
 # ==============================
 # CONFIG
 # ==============================
