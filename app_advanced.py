@@ -7,7 +7,7 @@ from io import BytesIO
 
 st.set_page_config(
     page_title="Gestion Projet Priorités",
-    page_icon="",    
+    page_icon="https://raw.githubusercontent.com/baptistebugni-oss/liste_priorite_chantier/refs/heads/main/app_icon.ico",
 )
 
 st.write("Icon exists:", os.path.exists("app_icon.ico"))
