@@ -21,8 +21,6 @@ import qrcode
 import base64
 import requests
 
-st.write("GitHub config:", get_github_cfg())
-
 
 # ==============================
 # CONFIG
@@ -178,6 +176,18 @@ def github_fetch_file(path_repo):
     except Exception as e:
         print("Erreur fetch_file GitHub:", e)
         return None
+
+# ========================================
+# TEST CONFIG GITHUB (sécurisé)
+# ========================================
+if is_admin:
+    st.subheader("🔧 Test configuration GitHub")
+
+    cfg = get_github_cfg()
+    st.write("Configuration détectée :", cfg)
+
+    sha_test = github_get_file_sha("chantiers.json")
+    st.write("SHA détecté pour chantiers.json :", sha_test)
 
 
 def charger_chantiers():
