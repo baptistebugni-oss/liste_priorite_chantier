@@ -21,6 +21,10 @@ import qrcode
 import base64
 import requests
 
+with open("test_write.json", "w") as f:
+    f.write("OK")
+st.write("Test write done")
+
 # ==============================
 # CONFIG
 # ==============================
