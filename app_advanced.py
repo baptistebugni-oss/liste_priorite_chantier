@@ -22,6 +22,18 @@ import base64
 import requests
 
 
+def safe_json_dump(data):
+    """Empêche l’écriture d’un JSON vide, ce qui casserait GitHub."""
+    if data is None:
+        return "[]"
+    if isinstance(data, list) and len(data) == 0:
+        return "[]"
+    try:
+        return json.dumps(data, ensure_ascii=False, indent=4)
+    except:
+        return "[]"
+
+
 # ==============================
 # CONFIG
 # ==============================
@@ -115,26 +127,30 @@ def github_get_file_sha(path_repo):
 
 
 def github_save_file(path_repo, content_str, message="Mise à jour via app Streamlit"):
-    """
-    Sauvegarde un fichier texte (JSON) sur GitHub dans le repo indiqué.
-    Réécrit tout le contenu à chaque fois (stratégie A).
-    """
+    """Sauvegarde sécurisée : n'écrase JAMAIS un fichier par un contenu vide."""
+    
     cfg = get_github_cfg()
     if cfg is None:
-        print("Config GitHub manquante dans st.secrets, pas de sauvegarde distante.")
+        print("⚠️ Pas de config GitHub → sauvegarde locale seulement.")
         return
 
     token, repo, branch = cfg
+
+    # 1️⃣ Anti-corruption : jamais enregistrer un fichier vide
+    if content_str.strip() == "":
+        print("⛔ Refus d’envoyer un fichier vide sur GitHub !")
+        return
+
     url = f"https://api.github.com/repos/{repo}/contents/{path_repo}"
     headers = {
         "Authorization": f"Bearer {token}",
         "Accept": "application/vnd.github+json",
     }
 
-    # Contenu en base64
+    # 2️⃣ Encodage en base64
     b64_content = base64.b64encode(content_str.encode("utf-8")).decode("utf-8")
 
-    # SHA actuel (si fichier déjà existant)
+    # 3️⃣ Récupération SHA actuel
     sha = github_get_file_sha(path_repo)
 
     payload = {
@@ -142,17 +158,18 @@ def github_save_file(path_repo, content_str, message="Mise à jour via app Strea
         "content": b64_content,
         "branch": branch,
     }
-    if sha is not None:
+    if sha:
         payload["sha"] = sha
 
+    # 4️⃣ Appel API protégé
     try:
         r = requests.put(url, headers=headers, json=payload)
-        if r.status_code not in (200, 201):
-            print("Erreur sauvegarde GitHub:", r.status_code, r.text)
+        if r.status_code in (200, 201):
+            print(f"✔ GitHub sauvegardé : {path_repo}")
         else:
-            print(f"Fichier {path_repo} sauvegardé sur GitHub.")
+            print("❌ Erreur GitHub :", r.status_code, r.text)
     except Exception as e:
-        print("Exception lors de la sauvegarde GitHub:", e)
+        print("❌ Exception GitHub :", e)
 
 
 def github_fetch_file(path_repo):
@@ -214,24 +231,25 @@ def charger_chantiers():
 
 
 def sauvegarder_chantiers(df):
-    """Sauvegarde en local + envoie sur GitHub."""
+    """Sauvegarde localement + push GitHub mais avec protection anti-fichier vide."""
+    
     df_to_save = df.copy()
-    # Conversion date en str pour JSON
+
     if "date" in df_to_save.columns:
         df_to_save["date"] = df_to_save["date"].astype(str)
 
     data_list = df_to_save.to_dict(orient="records")
 
-    # 1) Sauvegarde locale
+    # 1️⃣ Sauvegarde locale
     with open(DATA_FILE, "w", encoding="utf-8") as f:
         json.dump(data_list, f, ensure_ascii=False, indent=4)
 
-    # 2) Sauvegarde distante sur GitHub
+    # 2️⃣ Sauvegarde GitHub sécurisée
     try:
-        json_str = json.dumps(data_list, ensure_ascii=False, indent=4)
-        github_save_file(DATA_FILE, json_str, message="Mise à jour chantiers.json via app")
+        json_str = safe_json_dump(data_list)
+        github_save_file(DATA_FILE, json_str, message="Update via Streamlit")
     except Exception as e:
-        print("Erreur sauvegarde_chantiers -> GitHub:", e)
+        print("Erreur sauvegarde distante :", e)
 
 
 def charger_options():
