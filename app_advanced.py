@@ -21,14 +21,6 @@ import qrcode
 import base64
 import requests
 
-with open("test_write.json", "w") as f:
-    f.write("OK")
-st.write("Test write done")
-
-st.write("Working dir:", os.getcwd())
-st.write("Files:", os.listdir())
-st.write("GitHub config:", get_github_cfg())
-
 
 # ==============================
 # CONFIG
