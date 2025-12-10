@@ -21,6 +21,10 @@ from reportlab.lib.utils import ImageReader
 import qrcode
 
 
+import base64
+import requests
+
+
 # ==============================
 # CONFIG
 # ==============================
@@ -75,54 +79,209 @@ def ensure_columns(df, cols):
     return df
 
 
-def charger_chantiers():
-    if not os.path.exists(DATA_FILE):
-        return pd.DataFrame(columns=COLUMNS)
+# ==============================
+# GESTION SAUVEGARDE GITHUB
+# ==============================
+
+def get_github_cfg():
+    """Récupère la config GitHub depuis st.secrets. Retourne None si incomplet."""
+    try:
+        token = st.secrets["GITHUB_TOKEN"]
+        repo = st.secrets["GITHUB_REPO"]
+        branch = st.secrets.get("GITHUB_BRANCH", "main")
+        return token, repo, branch
+    except Exception:
+        return None
+
+
+def github_get_file_sha(path_repo):
+    """Récupère le SHA du fichier sur GitHub (pour mise à jour). Retourne None si inexistant."""
+    cfg = get_github_cfg()
+    if cfg is None:
+        return None
+
+    token, repo, branch = cfg
+    url = f"https://api.github.com/repos/{repo}/contents/{path_repo}"
+    headers = {"Authorization": f"Bearer {token}"}
 
     try:
-        with open(DATA_FILE, "r", encoding="utf-8") as f:
-            data = json.load(f)
-    except Exception:
-        data = []
+        r = requests.get(url, headers=headers, params={"ref": branch})
+        if r.status_code == 200:
+            data = r.json()
+            return data.get("sha")
+        else:
+            return None
+    except Exception as e:
+        print("Erreur get_file_sha GitHub:", e)
+        return None
+
+
+def github_save_file(path_repo, content_str, message="Mise à jour via app Streamlit"):
+    """
+    Sauvegarde un fichier texte (JSON) sur GitHub dans le repo indiqué.
+    Réécrit tout le contenu à chaque fois (stratégie A).
+    """
+    cfg = get_github_cfg()
+    if cfg is None:
+        print("Config GitHub manquante dans st.secrets, pas de sauvegarde distante.")
+        return
+
+    token, repo, branch = cfg
+    url = f"https://api.github.com/repos/{repo}/contents/{path_repo}"
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/vnd.github+json",
+    }
+
+    # Contenu en base64
+    b64_content = base64.b64encode(content_str.encode("utf-8")).decode("utf-8")
+
+    # SHA actuel (si fichier déjà existant)
+    sha = github_get_file_sha(path_repo)
+
+    payload = {
+        "message": message,
+        "content": b64_content,
+        "branch": branch,
+    }
+    if sha is not None:
+        payload["sha"] = sha
+
+    try:
+        r = requests.put(url, headers=headers, json=payload)
+        if r.status_code not in (200, 201):
+            print("Erreur sauvegarde GitHub:", r.status_code, r.text)
+        else:
+            print(f"Fichier {path_repo} sauvegardé sur GitHub.")
+    except Exception as e:
+        print("Exception lors de la sauvegarde GitHub:", e)
+
+
+def github_fetch_file(path_repo):
+    """Essaie de récupérer un fichier texte depuis GitHub. Retourne le texte ou None."""
+    cfg = get_github_cfg()
+    if cfg is None:
+        return None
+
+    token, repo, branch = cfg
+    url = f"https://api.github.com/repos/{repo}/contents/{path_repo}"
+    headers = {"Authorization": f"Bearer {token}"}
+
+    try:
+        r = requests.get(url, headers=headers, params={"ref": branch})
+        if r.status_code == 200:
+            data = r.json()
+            content_b64 = data.get("content", "")
+            return base64.b64decode(content_b64).decode("utf-8")
+        else:
+            return None
+    except Exception as e:
+        print("Erreur fetch_file GitHub:", e)
+        return None
+
+
+def charger_chantiers():
+    """Charge le fichier JSON local ou depuis GitHub, puis renvoie un DataFrame propre."""
+    # 1) Si fichier local existe -> on le lit normalement
+    if os.path.exists(DATA_FILE):
+        try:
+            with open(DATA_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+        except Exception:
+            data = []
+    else:
+        # 2) Sinon, on tente de récupérer depuis GitHub
+        txt = github_fetch_file(DATA_FILE)
+        if txt is not None:
+            try:
+                data = json.loads(txt)
+                # On le recrée aussi en local
+                with open(DATA_FILE, "w", encoding="utf-8") as f:
+                    json.dump(data, f, ensure_ascii=False, indent=4)
+            except Exception:
+                data = []
+        else:
+            data = []
 
     df = pd.DataFrame(data)
-    df = ensure_columns(df, COLUMNS)
+    for col in ["nom", "ref", "date", "statut", "priorite"]:
+        if col not in df.columns:
+            df[col] = ""
 
-    if not df.empty:
+    if not df.empty and "date" in df.columns:
         df["date"] = pd.to_datetime(df["date"], errors="coerce")
 
     return df
 
 
 def sauvegarder_chantiers(df):
-    df2 = df.copy()
-    if not df2.empty:
-        df2["date"] = df2["date"].astype(str)
+    """Sauvegarde en local + envoie sur GitHub."""
+    df_to_save = df.copy()
+    # Conversion date en str pour JSON
+    if "date" in df_to_save.columns:
+        df_to_save["date"] = df_to_save["date"].astype(str)
 
+    data_list = df_to_save.to_dict(orient="records")
+
+    # 1) Sauvegarde locale
     with open(DATA_FILE, "w", encoding="utf-8") as f:
-        json.dump(df2.to_dict(orient="records"), f, ensure_ascii=False, indent=4)
+        json.dump(data_list, f, ensure_ascii=False, indent=4)
+
+    # 2) Sauvegarde distante sur GitHub
+    try:
+        json_str = json.dumps(data_list, ensure_ascii=False, indent=4)
+        github_save_file(DATA_FILE, json_str, message="Mise à jour chantiers.json via app")
+    except Exception as e:
+        print("Erreur sauvegarde_chantiers -> GitHub:", e)
 
 
 def charger_options():
-    if not os.path.exists(OPTIONS_FILE):
-        sauvegarder_options(DEFAULT_OPTIONS)
-        return DEFAULT_OPTIONS.copy()
+    """Charge les options (seuils, QR, etc.) depuis local ou GitHub."""
+    if os.path.exists(OPTIONS_FILE):
+        try:
+            with open(OPTIONS_FILE, "r", encoding="utf-8") as f:
+                opts = json.load(f)
+        except Exception:
+            opts = {}
+    else:
+        txt = github_fetch_file(OPTIONS_FILE)
+        if txt is not None:
+            try:
+                opts = json.loads(txt)
+                with open(OPTIONS_FILE, "w", encoding="utf-8") as f:
+                    json.dump(opts, f, ensure_ascii=False, indent=4)
+            except Exception:
+                opts = {}
+        else:
+            opts = {}
 
-    try:
-        with open(OPTIONS_FILE, "r", encoding="utf-8") as f:
-            opts = json.load(f)
-    except Exception:
-        opts = {}
-
-    for k, v in DEFAULT_OPTIONS.items():
-        opts.setdefault(k, v)
+    # Valeurs par défaut si manquantes
+    if "rouge" not in opts:
+        opts["rouge"] = 2
+    if "orange" not in opts:
+        opts["orange"] = 7
+    if "jaune" not in opts:
+        opts["jaune"] = 14
+    if "show_qr" not in opts:
+        opts["show_qr"] = False
+    if "qr_url" not in opts:
+        opts["qr_url"] = ""
 
     return opts
 
 
 def sauvegarder_options(opts):
+    """Sauvegarde des options en local + GitHub."""
+    # 1) Local
     with open(OPTIONS_FILE, "w", encoding="utf-8") as f:
         json.dump(opts, f, ensure_ascii=False, indent=4)
+
+    # 2) GitHub
+    try:
+        json_str = json.dumps(opts, ensure_ascii=False, indent=4)
+        github_save_file(OPTIONS_FILE, json_str, message="Mise à jour options.json via app")
+    except Exception as e:
+        print("Erreur sauvegarder_options -> GitHub:", e)
 
 
 # ==============================
