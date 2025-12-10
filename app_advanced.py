@@ -243,25 +243,32 @@ def charger_chantiers():
 
 
 def sauvegarder_chantiers(df):
-    """Sauvegarde localement + push GitHub mais avec protection anti-fichier vide."""
-    
+    """Sauvegarde en local + envoie sur GitHub (sécurisé)."""
     df_to_save = df.copy()
 
+    # Convertir les dates en string
     if "date" in df_to_save.columns:
         df_to_save["date"] = df_to_save["date"].astype(str)
 
     data_list = df_to_save.to_dict(orient="records")
 
-    # 1️⃣ Sauvegarde locale
+    # --- 1) Sauvegarde locale ---
     with open(DATA_FILE, "w", encoding="utf-8") as f:
         json.dump(data_list, f, ensure_ascii=False, indent=4)
 
-    # 2️⃣ Sauvegarde GitHub sécurisée
-    try:
-        json_str = safe_json_dump(data_list)
-github_save_file(DATA_FILE, json_str, message="Mise à jour chantiers.json via app")
-    except Exception as e:
-        print("Erreur sauvegarde distante :", e)
+    # --- 2) Sauvegarde GitHub sécurisée ---
+    json_str = safe_json_dump(data_list)
+
+    # Ne JAMAIS envoyer un contenu vide à GitHub
+    if json_str.strip() == "" or json_str.strip() == "[]":
+        print("⛔ Annulé : GitHub ne recevra pas un fichier JSON vide.")
+        return
+
+    github_save_file(
+        DATA_FILE,
+        json_str,
+        message="Mise à jour chantiers.json via app"
+    )
 
 
 def charger_options():
