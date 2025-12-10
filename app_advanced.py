@@ -177,18 +177,6 @@ def github_fetch_file(path_repo):
         print("Erreur fetch_file GitHub:", e)
         return None
 
-# ========================================
-# TEST CONFIG GITHUB (sécurisé)
-# ========================================
-if is_admin:
-    st.subheader("🔧 Test configuration GitHub")
-
-    cfg = get_github_cfg()
-    st.write("Configuration détectée :", cfg)
-
-    sha_test = github_get_file_sha("chantiers.json")
-    st.write("SHA détecté pour chantiers.json :", sha_test)
-
 
 def charger_chantiers():
     """Charge le fichier JSON local ou depuis GitHub, puis renvoie un DataFrame propre."""
@@ -715,6 +703,22 @@ if mode == "Administrateur":
         is_admin = True
     else:
         st.sidebar.error("Mot de passe incorrect")
+
+
+# ========================================
+# TEST CONFIG GITHUB (sécurisé)
+# ========================================
+if is_admin:
+    st.subheader("🔧 Test configuration GitHub")
+
+    try:
+        cfg = get_github_cfg()
+        st.write("Configuration détectée :", cfg)
+
+        sha_test = github_get_file_sha("chantiers.json")
+        st.write("SHA détecté pour chantiers.json :", sha_test)
+    except Exception as e:
+        st.error(f"Erreur lors du test GitHub : {e}")
 
 df = charger_chantiers()
 opts = charger_options()
