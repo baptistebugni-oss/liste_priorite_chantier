@@ -21,6 +21,8 @@ import qrcode
 import base64
 import requests
 
+st.write("GitHub config:", get_github_cfg())
+
 
 # ==============================
 # CONFIG
