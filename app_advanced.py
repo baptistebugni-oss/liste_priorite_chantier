@@ -910,15 +910,15 @@ if is_admin:
             "priorite": ""
         }
 
-        for col in df.columns:
-            if col not in new_row:
-                new_row[col] = ""
+            for col in df.columns:
+                if col not in new_row:
+                    new_row[col] = ""
 
-        df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
-        sauvegarder_chantiers(df)
+            df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
+            sauvegarder_chantiers(df)
 
-        st.success("Chantier ajouté")
-        st.rerun()
+            st.success("Chantier ajouté")
+            st.rerun()
     
     # MODIFIER / SUPPRIMER
     with st.expander("✏️ Modifier / Supprimer un chantier", expanded=False):
