@@ -876,24 +876,24 @@ if is_admin:
 
                 if st.button("➕ Ajouter ce chantier", key="excel_add"):
 
-    new_row = {
-        "nom": row_imp["nom"],
-        "ref": row_imp["ref"],
-        "date": row_imp["date"],
-        "commentaire": "",
-        "statut": "Prévu",
-        "priorite": ""
-    }
+                new_row = {
+                "nom": row_imp["nom"],
+                "ref": row_imp["ref"],
+                "date": row_imp["date"],
+                "commentaire": "",
+                "statut": "Prévu",
+                "priorite": ""
+            }
 
-    # Sécurisation : s’assurer que toutes les colonnes existent
-    for col in df.columns:
-        if col not in new_row:
-            new_row[col] = ""
+            # Sécurisation : s’assurer que toutes les colonnes existent
+            for col in df.columns:
+                if col not in new_row:
+                    new_row[col] = ""
 
-    df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
-    sauvegarder_chantiers(df)
-    st.success("Chantier ajouté !")
-    st.rerun()
+            df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
+            sauvegarder_chantiers(df)
+            st.success("Chantier ajouté !")
+            st.rerun()
 
     # AJOUT MANUEL
     with st.expander("➕ Ajouter manuellement un chantier", expanded=False):
