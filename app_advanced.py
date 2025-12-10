@@ -10,8 +10,6 @@ st.set_page_config(
     page_icon="https://raw.githubusercontent.com/baptistebugni-oss/liste_priorite_chantier/refs/heads/main/app_icon.ico",
 )
 
-st.write("Icon exists:", os.path.exists("app_icon.ico"))
-
 # ==== PDF ====
 from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import A4
@@ -20,10 +18,8 @@ from reportlab.lib.units import mm
 from reportlab.lib.utils import ImageReader
 import qrcode
 
-
 import base64
 import requests
-
 
 # ==============================
 # CONFIG
@@ -61,6 +57,7 @@ COLOR_STATUT = {
     "En attente": "#FF80B5",
     "Terminé": "#4CD964",
 }
+
 
 def draw_circle(c, x, y, size, color_hex):
     """Dessine une pastille ronde de couleur."""
@@ -204,7 +201,8 @@ def charger_chantiers():
             data = []
 
     df = pd.DataFrame(data)
-    for col in ["nom", "ref", "date", "statut", "priorite"]:
+    # s'assurer qu'on a toutes les colonnes nécessaires
+    for col in ["nom", "ref", "date", "commentaire", "statut", "priorite"]:
         if col not in df.columns:
             df[col] = ""
 
@@ -266,6 +264,8 @@ def charger_options():
         opts["show_qr"] = False
     if "qr_url" not in opts:
         opts["qr_url"] = ""
+    if "horizon" not in opts:
+        opts["horizon"] = 60
 
     return opts
 
@@ -438,7 +438,7 @@ def build_pdf_liste(df, opts, qr_url=None):
         [""] * len(df),
         df["nom"].astype(str).tolist(),
         df["ref"].astype(str).tolist(),
-        df["date"].dt.strftime("%d/%m/%Y").fillna("-").tolist(),
+        df["date"].dt.strftime("%d/%m/%Y").fillna("-").tolist() if not df.empty else [],
         df["statut"].astype(str).tolist(),
         [""] * len(df),
     ]
@@ -446,10 +446,13 @@ def build_pdf_liste(df, opts, qr_url=None):
     c.setFont("Helvetica", 10)
     max_widths = []
 
-    for header, col in zip(headers, columns):
-        header_w = c.stringWidth(header, "Helvetica-Bold", 10)
-        cell_w = max(c.stringWidth(str(x), "Helvetica", 9) for x in col)
-        max_widths.append(max(header_w, cell_w) + 12)
+    if len(df) > 0:
+        for header, col in zip(headers, columns):
+            header_w = c.stringWidth(header, "Helvetica-Bold", 10)
+            cell_w = max(c.stringWidth(str(x), "Helvetica", 9) for x in col)
+            max_widths.append(max(header_w, cell_w) + 12)
+    else:
+        max_widths = [22, 190, 60, 60, 70, 22]
 
     total_target = 22 + 190 + 60 + 60 + 70 + 22
     sum_widths = sum(max_widths)
@@ -620,14 +623,10 @@ def build_pdf_liste(df, opts, qr_url=None):
                 date_longue = f"{jour_txt} {d.day:02d} {mois_txt}"
 
                 txt = f"{date_longue} — {row['nom']} ({row['ref']})"
-                
-                # Limite de largeur avant la pastille statut
-                max_text_width = 300 - 40  # point fixe avant la pastille, marge de sécurité
 
-                # Mesure de la largeur du texte
+                max_text_width = 300 - 40
                 text_width = c.stringWidth(txt, "Helvetica", 10)
 
-                # Si le texte dépasse, on le coupe proprement et ajoute "..."
                 if text_width > max_text_width:
                     cutoff = len(txt)
                     while c.stringWidth(txt[:cutoff] + "…", "Helvetica", 10) > max_text_width and cutoff > 10:
@@ -636,7 +635,6 @@ def build_pdf_liste(df, opts, qr_url=None):
                 else:
                     txt_to_print = txt
 
-                # Impression du texte sécurisé
                 c.drawString(margin_left + 18, y, txt_to_print)
 
                 stat = COLOR_STATUT.get(row["statut"], "#F5EEDC")
@@ -655,16 +653,13 @@ def build_pdf_liste(df, opts, qr_url=None):
     # ===============================
     if qr_url is not None and isinstance(qr_url, str) and qr_url.strip() != "":
         try:
-            # Génération du QR en mémoire
             qr_img = qrcode.make(qr_url)
-
             qr_buf = BytesIO()
             qr_img.save(qr_buf, format="PNG")
             qr_buf.seek(0)
 
             qr_reader = ImageReader(qr_buf)
 
-            # Position en bas à droite
             qr_size = 28 * mm
             qr_x = page_w - qr_size - 25
             qr_y = 20
@@ -679,26 +674,23 @@ def build_pdf_liste(df, opts, qr_url=None):
                 mask='auto'
             )
 
-            # Petit texte sous le QR
             c.setFont("Helvetica", 8)
             c.setFillColor(colors.black)
             c.drawCentredString(qr_x + qr_size / 2, qr_y - 10, "Accès mobile")
 
         except Exception as e:
-            # Sécurité : éviter que l'export plante si QR impossible
             print("Erreur QR-code PDF:", e)
 
-        c.showPage()
-        c.save()
-        buf.seek(0)
-        return buf
+    c.showPage()
+    c.save()
+    buf.seek(0)
+    return buf
 
 
 # =======================================================
 # INTERFACE STREAMLIT — CONFIG DE BASE
 # =======================================================
 
-st.set_page_config(page_title="Gestion Priorité chantier", layout="wide")
 st.title("📋 Gestion des priorités chantier")
 
 mode = st.sidebar.selectbox("Mode", ["Lecture seule", "Administrateur"])
@@ -764,10 +756,10 @@ else:
 
     st.dataframe(disp, use_container_width=True)
 
-
 # =============================
 # 📅 VUE PAR SEMAINE (TIMELINE)
 # =============================
+
 with st.expander("📅 Vue par semaine (ligne du temps)", expanded=False):
 
     df_week = df.copy()
@@ -780,7 +772,6 @@ with st.expander("📅 Vue par semaine (ligne du temps)", expanded=False):
         today = date.today()
         end_date = today + timedelta(days=horizon)
 
-        # Filtrer l'horizon
         df_week = df_week[
             (df_week["date"].dt.date >= today) &
             (df_week["date"].dt.date <= end_date)
@@ -789,33 +780,28 @@ with st.expander("📅 Vue par semaine (ligne du temps)", expanded=False):
         if df_week.empty:
             st.warning("Aucun chantier dans l’horizon sélectionné.")
         else:
-            # Extraire semaine + année
             iso = df_week["date"].dt.isocalendar()
             df_week["week"] = iso.week
             df_week["year"] = iso.year
 
             df_week = df_week.sort_values("date")
 
-            # Mois en français
             mois_fr = {
                 1: "janvier", 2: "février", 3: "mars", 4: "avril",
                 5: "mai", 6: "juin", 7: "juillet", 8: "août",
                 9: "septembre", 10: "octobre", 11: "novembre", 12: "décembre"
             }
 
-            # Affichage par semaine
             for (year, week), g in df_week.groupby(["year", "week"]):
 
                 start = date.fromisocalendar(int(year), int(week), 1)
                 endw = date.fromisocalendar(int(year), int(week), 7)
 
-                # Contraintes horizon
                 if start < today:
                     start = today
                 if endw > end_date:
                     endw = end_date
 
-                # Texte de période
                 if start.month == endw.month:
                     peri = f"du {start.day} au {endw.day} {mois_fr[start.month]} {year}"
                 else:
@@ -826,7 +812,6 @@ with st.expander("📅 Vue par semaine (ligne du temps)", expanded=False):
 
                 st.markdown(f"### 🗓️ Semaine {int(week):02d} — {peri}")
 
-                # Affichage des chantiers
                 for _, row in g.iterrows():
                     urg = urgence_emoji(row, opts)
                     stat = statut_emoji(row["statut"])
@@ -838,7 +823,6 @@ with st.expander("📅 Vue par semaine (ligne du temps)", expanded=False):
                     c2.write(dstr)
                     c3.write(f"{nom} ({row['ref']})")
                     c4.write(f"{stat} {row['statut']}")
-
 
 # =======================================================
 # ADMINISTRATION
@@ -875,25 +859,23 @@ if is_admin:
                 )
 
                 if st.button("➕ Ajouter ce chantier", key="excel_add"):
+                    new_row = {
+                        "nom": row_imp["nom"],
+                        "ref": row_imp["ref"],
+                        "date": row_imp["date"],
+                        "commentaire": "",
+                        "statut": "Prévu",
+                        "priorite": ""
+                    }
 
-                new_row = {
-                "nom": row_imp["nom"],
-                "ref": row_imp["ref"],
-                "date": row_imp["date"],
-                "commentaire": "",
-                "statut": "Prévu",
-                "priorite": ""
-            }
+                    for col in df.columns:
+                        if col not in new_row:
+                            new_row[col] = ""
 
-            # Sécurisation : s’assurer que toutes les colonnes existent
-            for col in df.columns:
-                if col not in new_row:
-                    new_row[col] = ""
-
-            df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
-            sauvegarder_chantiers(df)
-            st.success("Chantier ajouté !")
-            st.rerun()
+                    df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
+                    sauvegarder_chantiers(df)
+                    st.success("Chantier ajouté !")
+                    st.rerun()
 
     # AJOUT MANUEL
     with st.expander("➕ Ajouter manuellement un chantier", expanded=False):
@@ -909,27 +891,25 @@ if is_admin:
         n_comment = st.text_area("Commentaire", key="m_comm")
 
         if st.button("Ajouter chantier", key="m_add"):
+            new_row = {
+                "nom": n_nom,
+                "ref": n_ref,
+                "date": pd.to_datetime(n_date),
+                "commentaire": n_comment,
+                "statut": n_statut,
+                "priorite": ""
+            }
 
-    new_row = {
-        "nom": n_nom,
-        "ref": n_ref,
-        "date": pd.to_datetime(n_date),
-        "commentaire": n_comment,
-        "statut": n_statut,
-        "priorite": ""
-    }
+            for col in df.columns:
+                if col not in new_row:
+                    new_row[col] = ""
 
-    # Sécurisation
-    for col in df.columns:
-        if col not in new_row:
-            new_row[col] = ""
+            df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
+            sauvegarder_chantiers(df)
 
-    df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
-    sauvegarder_chantiers(df)
+            st.success("Chantier ajouté")
+            st.rerun()
 
-    st.success("Chantier ajouté")
-    st.rerun()
-    
     # MODIFIER / SUPPRIMER
     with st.expander("✏️ Modifier / Supprimer un chantier", expanded=False):
         if df.empty:
@@ -962,14 +942,13 @@ if is_admin:
             c1, c2 = st.columns(2)
 
             if c1.button("💾 Sauvegarder", key=f"save_{idx}"):
-                df.loc[idx] = [
-                    e_nom,
-                    e_ref,
-                    pd.to_datetime(e_date),
-                    e_comment,
-                    e_statut,
-                    "",
-                ]
+                # Mise à jour ciblée des colonnes existantes
+                df.loc[idx, "nom"] = e_nom
+                df.loc[idx, "ref"] = e_ref
+                df.loc[idx, "date"] = pd.to_datetime(e_date)
+                df.loc[idx, "statut"] = e_statut
+                df.loc[idx, "commentaire"] = e_comment
+
                 sauvegarder_chantiers(df)
                 st.success("Modifié !")
                 st.rerun()
