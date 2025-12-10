@@ -875,17 +875,25 @@ if is_admin:
                 )
 
                 if st.button("➕ Ajouter ce chantier", key="excel_add"):
-                    df.loc[len(df)] = [
-                        row_imp["nom"],
-                        row_imp["ref"],
-                        row_imp["date"],
-                        "",
-                        "Prévu",
-                        "",
-                    ]
-                    sauvegarder_chantiers(df)
-                    st.success("Chantier ajouté !")
-                    st.rerun()
+
+    new_row = {
+        "nom": row_imp["nom"],
+        "ref": row_imp["ref"],
+        "date": row_imp["date"],
+        "commentaire": "",
+        "statut": "Prévu",
+        "priorite": ""
+    }
+
+    # Sécurisation : s’assurer que toutes les colonnes existent
+    for col in df.columns:
+        if col not in new_row:
+            new_row[col] = ""
+
+    df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
+    sauvegarder_chantiers(df)
+    st.success("Chantier ajouté !")
+    st.rerun()
 
     # AJOUT MANUEL
     with st.expander("➕ Ajouter manuellement un chantier", expanded=False):
@@ -900,26 +908,27 @@ if is_admin:
         )
         n_comment = st.text_area("Commentaire", key="m_comm")
 
-        if st.button("➕ Ajouter ce chantier", key="excel_add"):
+        if st.button("Ajouter chantier", key="m_add"):
 
-            new_row = {
-                "nom": row_imp["nom"],
-                "ref": row_imp["ref"],
-                "date": row_imp["date"],
-                "commentaire": "",
-                "statut": "Prévu",
-                "priorite": ""
-            }
+    new_row = {
+        "nom": n_nom,
+        "ref": n_ref,
+        "date": pd.to_datetime(n_date),
+        "commentaire": n_comment,
+        "statut": n_statut,
+        "priorite": ""
+    }
 
-            # Sécurisation : s’assurer que toutes les colonnes existent
-            for col in df.columns:
-                if col not in new_row:
-                    new_row[col] = ""
+    # Sécurisation
+    for col in df.columns:
+        if col not in new_row:
+            new_row[col] = ""
 
-            df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
-            sauvegarder_chantiers(df)
-            st.success("Chantier ajouté !")
-            st.rerun()
+    df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
+    sauvegarder_chantiers(df)
+
+    st.success("Chantier ajouté")
+    st.rerun()
     
     # MODIFIER / SUPPRIMER
     with st.expander("✏️ Modifier / Supprimer un chantier", expanded=False):
