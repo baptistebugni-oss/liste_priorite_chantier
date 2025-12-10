@@ -93,6 +93,18 @@ def ensure_columns(df, cols):
 # GESTION SAUVEGARDE GITHUB
 # ==============================
 
+def safe_json_dump(data):
+    """Empêche d'envoyer un fichier JSON vide sur GitHub."""
+    if data is None:
+        return "[]"
+    if isinstance(data, list) and len(data) == 0:
+        return "[]"
+    try:
+        return json.dumps(data, ensure_ascii=False, indent=4)
+    except:
+        return "[]"
+
+
 def get_github_cfg():
     """Récupère la config GitHub depuis st.secrets. Retourne None si incomplet."""
     try:
@@ -247,7 +259,7 @@ def sauvegarder_chantiers(df):
     # 2️⃣ Sauvegarde GitHub sécurisée
     try:
         json_str = safe_json_dump(data_list)
-        github_save_file(DATA_FILE, json_str, message="Update via Streamlit")
+github_save_file(DATA_FILE, json_str, message="Mise à jour chantiers.json via app")
     except Exception as e:
         print("Erreur sauvegarde distante :", e)
 
